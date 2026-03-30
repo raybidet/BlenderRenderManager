@@ -15,6 +15,7 @@ import threading
 import ctypes
 import html as _html
 import queue
+import json
 
 try:
     import winsound as _winsound
@@ -309,15 +310,15 @@ class ConvertThread(QThread):
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             )
             if result.returncode == 0:
-                self.finished.emit(True, f"MP4 guardado en: {self.output_file}")
+                self.finished.emit(True, f"MP4 saved to: {self.output_file}")
             else:
                 err = (result.stderr or "").strip()
-                self.finished.emit(False, err[-800:] if err else "FFmpeg retornó error.")
+                self.finished.emit(False, err[-800:] if err else "FFmpeg returned an error.")
         except FileNotFoundError:
             self.finished.emit(
                 False,
-                "FFmpeg no encontrado en PATH.\n"
-                "Instalá FFmpeg y asegurate de que esté en las variables de entorno del sistema.",
+                "FFmpeg not found in PATH.\n"
+                "Install FFmpeg and make sure it is included in the system environment variables.",
             )
         except Exception as e:
             self.finished.emit(False, str(e))
@@ -491,7 +492,9 @@ class MainWindow(QMainWindow):
         self._btn_move_up.setFixedWidth(30)
         self._btn_move_down = QPushButton("↓")
         self._btn_move_down.setFixedWidth(30)
-        self._btn_save      = QPushButton("💾  Manual Save")
+        self._btn_export_queue = QPushButton("📤  Export Render Queue")
+        self._btn_import_queue = QPushButton("📥  Load Render Queue")
+        self._btn_save         = QPushButton("💾  Manual Save")
         self._btn_save.setToolTip("Auto-save enabled - use only if needed.")
 
         self._btn_start.clicked.connect(self._start_selected)
@@ -503,12 +506,16 @@ class MainWindow(QMainWindow):
         self._btn_duplicate.clicked.connect(self._duplicate_selected)
         self._btn_move_up.clicked.connect(self._move_job_up)
         self._btn_move_down.clicked.connect(self._move_job_down)
+        self._btn_export_queue.clicked.connect(self._export_render_queue)
+        self._btn_import_queue.clicked.connect(self._import_render_queue)
         self._btn_save.clicked.connect(self._save_jobs)
 
         btn_row_top.addWidget(self._btn_start)
         btn_row_top.addWidget(self._btn_start_all)
         btn_row_top.addWidget(self._simul_checkbox)
         btn_row_top.addStretch()
+        btn_row_top.addWidget(self._btn_export_queue)
+        btn_row_top.addWidget(self._btn_import_queue)
         btn_row_top.addWidget(self._btn_save)
 
         for btn in (
@@ -835,13 +842,13 @@ class MainWindow(QMainWindow):
         form = QFormLayout()
         name_edit = QLineEdit()
         path_edit = QLineEdit()
-        form.addRow("Nombre:", name_edit)
+        form.addRow("Name:", name_edit)
 
         path_row = QHBoxLayout()
         path_row.addWidget(path_edit)
         btn_browse_dlg = QPushButton("Browse…")
         path_row.addWidget(btn_browse_dlg)
-        form.addRow("Ejecutable:", path_row)
+        form.addRow("Executable:", path_row)
         layout.addLayout(form)
 
         def refresh_list(select_name: str | None = None) -> None:
@@ -878,11 +885,11 @@ class MainWindow(QMainWindow):
                 return True
             n = name_edit.text().strip()
             if not n:
-                QMessageBox.warning(dlg, "Nombre", "El nombre no puede estar vacío.")
+                QMessageBox.warning(dlg, "Name", "The name cannot be empty.")
                 return False
             for i, p in enumerate(edited):
                 if i != row and p.name == n:
-                    QMessageBox.warning(dlg, "Nombre", "Ya existe un perfil con ese nombre.")
+                    QMessageBox.warning(dlg, "Name", "A profile with that name already exists.")
                     return False
             edited[row].name = n
             edited[row].path = path_edit.text().strip() or DEFAULT_BLENDER
@@ -893,7 +900,7 @@ class MainWindow(QMainWindow):
 
         def browse_dlg() -> None:
             path, _ = QFileDialog.getOpenFileName(
-                dlg, "Seleccionar Blender", "",
+                dlg, "Select Blender", "",
                 "Executable (*.exe);;All Files (*)",
             )
             if path:
@@ -1121,7 +1128,7 @@ class MainWindow(QMainWindow):
             self._current_samples_map = {}
             self._current_fps_map     = {}
             self._update_samples_hint(self.scene_combo.currentText())
-            self.status_bar.showMessage("Archivo .blend no encontrado; escena mostrada sin metadatos.")
+            self.status_bar.showMessage(".blend file not found; scene shown without metadata.")
             return
 
         bexec = resolve_blender_exec(job, self._blender_profiles)
@@ -1244,9 +1251,9 @@ class MainWindow(QMainWindow):
 
         bpath, bprof = self._new_job_blender_fields()
         if not bpath:
-            return None, "Selecciona una ruta válida de Blender."
+            return None, "Select a valid Blender path."
         if not os.path.isfile(bpath):
-            return None, f"No se encontró el ejecutable de Blender:\n{bpath}"
+            return None, f"Blender executable was not found:\n{bpath}"
 
         resolution_pct: Optional[float] = None
         raw_res = self.resolution_edit.text().strip()
@@ -1291,7 +1298,7 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("IPC listener activo en 127.0.0.1:8765", 2500)
         except Exception as e:
             self._ipc_server = None
-            self.status_bar.showMessage(f"No se pudo iniciar IPC: {e}", 5000)
+            self.status_bar.showMessage(f"Could not start IPC: {e}", 5000)
 
     def _drain_ipc_queue(self) -> None:
         while True:
@@ -1306,16 +1313,16 @@ class MainWindow(QMainWindow):
         scene = str(payload.get("scene", "Scene")).strip() or "Scene"
 
         if not blend or not os.path.isfile(blend):
-            return None, "blend_file inválido o inexistente."
+            return None, "blend_file is invalid or does not exist."
 
         try:
             fs = int(payload.get("frame_start", 1))
             fe = int(payload.get("frame_end", 250))
         except Exception:
-            return None, "frame_start/frame_end deben ser enteros."
+            return None, "frame_start/frame_end must be integers."
 
         if fs > fe:
-            return None, "frame_start debe ser <= frame_end."
+            return None, "frame_start must be <= frame_end."
 
         samples_raw = payload.get("samples")
         samples_override = None
@@ -1325,7 +1332,7 @@ class MainWindow(QMainWindow):
                 if samples_override < 1:
                     raise ValueError
             except Exception:
-                return None, "samples debe ser entero positivo."
+                return None, "samples must be a positive integer."
 
         res_raw = payload.get("resolution_pct")
         resolution_pct = None
@@ -1335,7 +1342,7 @@ class MainWindow(QMainWindow):
                 if not 0 <= resolution_pct <= 100:
                     raise ValueError
             except Exception:
-                return None, "resolution_pct debe estar entre 0 y 100."
+                return None, "resolution_pct must be between 0 and 100."
 
         use_nodes = bool(payload.get("use_nodes", False))
         seq_name = str(payload.get("sequence_name", "")).strip()
@@ -1381,11 +1388,11 @@ class MainWindow(QMainWindow):
     def _add_job_from_ipc_payload(self, payload: dict) -> None:
         data, err = self._validate_ipc_payload(payload)
         if err or not data:
-            self.status_bar.showMessage(f"IPC descartado: {err}", 5000)
+            self.status_bar.showMessage(f"IPC discarded: {err}", 5000)
             return
 
         if self._job_exists_equivalent(data):
-            self.status_bar.showMessage("IPC: job duplicado ignorado.", 3500)
+            self.status_bar.showMessage("IPC: duplicate job ignored.", 3500)
             return
 
         job = RenderJob(
@@ -1406,7 +1413,7 @@ class MainWindow(QMainWindow):
         self._refresh_tree(selected_ids=selected_ids, current_id=current_id)
         self._auto_save_queue()
         self.status_bar.showMessage(
-            f"IPC: Job #{job.job_id} agregado ({os.path.basename(job.blend_file)} / {job.scene}).",
+            f"IPC: Job #{job.job_id} added ({os.path.basename(job.blend_file)} / {job.scene}).",
             5000,
         )
 
@@ -1482,12 +1489,12 @@ class MainWindow(QMainWindow):
     def _apply_changes_to_selected_job(self) -> None:
         job = self._selected_job()
         if not job:
-            QMessageBox.information(self, "Info", "Selecciona un job en la cola.")
+            QMessageBox.information(self, "Info", "Select a job in the queue.")
             return
         if job.status == RenderJob.STATUS_RUNNING:
             QMessageBox.warning(
                 self, "No editable",
-                "Este job está en ejecución. Cáncelalo antes de editar su configuración.",
+                "This job is running. Cancel it before editing its settings.",
             )
             return
 
@@ -1558,7 +1565,7 @@ class MainWindow(QMainWindow):
             self.queue_tree.blockSignals(False)
             self._set_form_dirty(False)
 
-        self.status_bar.showMessage(f"Job #{old_selected_id} actualizado y selección preservada ✓")
+        self.status_bar.showMessage(f"Job #{old_selected_id} updated and selection preserved ✓")
 
     # ------------------------------------------------------------------ Remove
 
@@ -2587,6 +2594,103 @@ class MainWindow(QMainWindow):
     def _save_jobs(self):
         save_config(self.jobs, self._blender_profiles)
         self.status_bar.showMessage(f"Queue saved.")
+
+    def _export_render_queue(self):
+        default_name = "render_queue_export.json"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Render Queue",
+            default_name,
+            "JSON Files (*.json);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        try:
+            payload = {
+                "version": 1,
+                "exported_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "jobs": [j.to_dict() for j in self.jobs],
+            }
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
+
+            self.status_bar.showMessage(
+                f"Exported {len(self.jobs)} job(s) to: {file_path}", 5000
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"No se pudo exportar la cola:\n{e}")
+
+    def _import_render_queue(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Render Queue",
+            "",
+            "JSON Files (*.json);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        running_jobs = [j for j in self.jobs if j.status == RenderJob.STATUS_RUNNING]
+        if running_jobs:
+            QMessageBox.warning(
+                self,
+                "Import blocked",
+                "Hay jobs en ejecución. Cancelalos antes de importar una cola.",
+            )
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Reemplazar cola actual",
+            "Esta acción reemplazará la cola actual por la del archivo seleccionado.\n"
+            "¿Deseas continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            raw_jobs = None
+            if isinstance(data, list):
+                raw_jobs = data
+            elif isinstance(data, dict) and isinstance(data.get("jobs"), list):
+                raw_jobs = data.get("jobs")
+
+            if raw_jobs is None:
+                raise ValueError("Formato inválido: se esperaba una lista o un objeto con clave 'jobs'.")
+
+            imported_jobs: list[RenderJob] = []
+            for entry in raw_jobs:
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    imported_jobs.append(RenderJob.from_dict(entry))
+                except Exception:
+                    continue
+
+            self.jobs = imported_jobs
+            if self.jobs:
+                RenderJob._id_counter = max(j.job_id for j in self.jobs)
+            else:
+                RenderJob._id_counter = 0
+
+            self._selected_job_id = None
+            self.log_edit.clear()
+            self._clear_progress_ui()
+            self._btn_apply_to_job.setEnabled(False)
+
+            self._refresh_tree()
+            self._auto_save_queue()
+            self.status_bar.showMessage(
+                f"Loaded {len(self.jobs)} job(s) from: {file_path}", 5000
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", f"No se pudo importar la cola:\n{e}")
 
     def _auto_save_queue(self):
         """Auto-save the queue after mutations (add/delete/finish)."""
