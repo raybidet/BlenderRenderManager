@@ -5,4 +5,6 @@
 - [x] Create git commit for latest changes
 
 ## Pending Steps
+- [ ] Push commit to remote GitHub repository
+
 
