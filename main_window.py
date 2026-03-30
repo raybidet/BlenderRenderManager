@@ -14,6 +14,7 @@ import time
 import threading
 import ctypes
 import html as _html
+import queue
 
 try:
     import winsound as _winsound
@@ -43,6 +44,7 @@ from models import (
     resolve_blender_exec,
 )
 from worker import RenderWorker, get_blend_info
+from ipc_server import BRMIPCServer
 
 
 
@@ -349,15 +351,23 @@ class MainWindow(QMainWindow):
         self._sequential_queue: list[int]               = []
         self._sequential_target_ids: set[int]           = set()
 
+        self._ipc_server: BRMIPCServer | None           = None
+        self._ipc_queue: queue.Queue[dict]              = queue.Queue()
+
         self.setAcceptDrops(True)
 
         self._build_ui()
         self._load_jobs()
+        self._start_ipc_server()
 
         # 1-second timer updates elapsed / ETA for running jobs
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick_timers)
         self._timer.start(1000)
+
+        self._ipc_timer = QTimer(self)
+        self._ipc_timer.timeout.connect(self._drain_ipc_queue)
+        self._ipc_timer.start(120)
 
     # ------------------------------------------------------------------ Icon
 
@@ -1257,6 +1267,143 @@ class MainWindow(QMainWindow):
             "blender_profile": bprof,
             "use_nodes": self.use_nodes_btn.isChecked(),
         }, None
+
+    # ------------------------------------------------------------------ IPC
+
+    def _start_ipc_server(self) -> None:
+        def _on_message(msg: dict) -> dict:
+            action = (msg or {}).get("action")
+            if action != "add_job":
+                return {"ok": False, "error": "Unsupported action"}
+            payload = (msg or {}).get("payload")
+            if not isinstance(payload, dict):
+                return {"ok": False, "error": "Missing payload object"}
+            self._ipc_queue.put(payload)
+            return {"ok": True, "queued": True}
+
+        try:
+            self._ipc_server = BRMIPCServer(host="127.0.0.1", port=8765, on_message=_on_message)
+            self._ipc_server.start()
+            self.status_bar.showMessage("IPC listener activo en 127.0.0.1:8765", 2500)
+        except Exception as e:
+            self._ipc_server = None
+            self.status_bar.showMessage(f"No se pudo iniciar IPC: {e}", 5000)
+
+    def _drain_ipc_queue(self) -> None:
+        while True:
+            try:
+                payload = self._ipc_queue.get_nowait()
+            except queue.Empty:
+                return
+            self._add_job_from_ipc_payload(payload)
+
+    def _validate_ipc_payload(self, payload: dict) -> tuple[dict | None, str | None]:
+        blend = str(payload.get("blend_file", "")).strip()
+        scene = str(payload.get("scene", "Scene")).strip() or "Scene"
+
+        if not blend or not os.path.isfile(blend):
+            return None, "blend_file inválido o inexistente."
+
+        try:
+            fs = int(payload.get("frame_start", 1))
+            fe = int(payload.get("frame_end", 250))
+        except Exception:
+            return None, "frame_start/frame_end deben ser enteros."
+
+        if fs > fe:
+            return None, "frame_start debe ser <= frame_end."
+
+        samples_raw = payload.get("samples")
+        samples_override = None
+        if samples_raw is not None:
+            try:
+                samples_override = int(samples_raw)
+                if samples_override < 1:
+                    raise ValueError
+            except Exception:
+                return None, "samples debe ser entero positivo."
+
+        res_raw = payload.get("resolution_pct")
+        resolution_pct = None
+        if res_raw is not None:
+            try:
+                resolution_pct = float(res_raw)
+                if not 0 <= resolution_pct <= 100:
+                    raise ValueError
+            except Exception:
+                return None, "resolution_pct debe estar entre 0 y 100."
+
+        use_nodes = bool(payload.get("use_nodes", False))
+        seq_name = str(payload.get("sequence_name", "")).strip()
+
+        bpath, bprof = self._new_job_blender_fields()
+        if not bpath or not os.path.isfile(bpath):
+            bpath = DEFAULT_BLENDER
+            bprof = ""
+
+        out_base = str(payload.get("output_path", "")).strip()
+        if not out_base:
+            out_base = os.path.join(os.path.dirname(blend), "brm_renders")
+
+        return {
+            "blend_file": blend,
+            "scene": scene,
+            "sequence_name": seq_name,
+            "output_path": out_base,
+            "frame_start": fs,
+            "frame_end": fe,
+            "samples_override": samples_override,
+            "resolution_pct": resolution_pct,
+            "blender_exec": bpath,
+            "blender_profile": bprof,
+            "use_nodes": use_nodes,
+        }, None
+
+    def _job_exists_equivalent(self, d: dict) -> bool:
+        for j in self.jobs:
+            if (
+                os.path.normcase(j.blend_file) == os.path.normcase(d["blend_file"])
+                and j.scene == d["scene"]
+                and j.frame_start == d["frame_start"]
+                and j.frame_end == d["frame_end"]
+                and j.samples_override == d["samples_override"]
+                and j.resolution_pct == d["resolution_pct"]
+                and j.use_nodes == d["use_nodes"]
+                and os.path.normcase(j.output_path) == os.path.normcase(d["output_path"])
+            ):
+                return True
+        return False
+
+    def _add_job_from_ipc_payload(self, payload: dict) -> None:
+        data, err = self._validate_ipc_payload(payload)
+        if err or not data:
+            self.status_bar.showMessage(f"IPC descartado: {err}", 5000)
+            return
+
+        if self._job_exists_equivalent(data):
+            self.status_bar.showMessage("IPC: job duplicado ignorado.", 3500)
+            return
+
+        job = RenderJob(
+            blend_file=data["blend_file"],
+            scene=data["scene"],
+            sequence_name=data["sequence_name"],
+            frame_start=data["frame_start"],
+            frame_end=data["frame_end"],
+            output_path=data["output_path"],
+            blender_exec=data["blender_exec"],
+            blender_profile=data["blender_profile"],
+            use_nodes=data["use_nodes"],
+            samples_override=data["samples_override"],
+            resolution_pct=data["resolution_pct"],
+        )
+        self.jobs.append(job)
+        self._refresh_tree()
+        self._auto_save_queue()
+        self.status_bar.showMessage(
+            f"IPC: Job #{job.job_id} agregado ({os.path.basename(job.blend_file)} / {job.scene}).",
+            5000,
+        )
 
     # ------------------------------------------------------------------ Add job
 
@@ -2285,6 +2432,17 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ Cleanup
 
     def closeEvent(self, event):
+        try:
+            if hasattr(self, "_ipc_timer") and self._ipc_timer is not None:
+                self._ipc_timer.stop()
+        except Exception:
+            pass
+        try:
+            if self._ipc_server is not None:
+                self._ipc_server.stop()
+        except Exception:
+            pass
+
         for job in self.jobs:
             if job.status == RenderJob.STATUS_RUNNING and job.process:
                 job.process.terminate()
