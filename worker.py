@@ -50,6 +50,36 @@ scene = bpy.data.scenes.get('{job.scene}') or bpy.context.scene
 scene.use_nodes = {use_nodes_val}
 print('[BRM] use_nodes =', scene.use_nodes)
 
+# If compositing nodes are enabled for this job, sync File Output base_path
+# to the job output path (effective path includes optional sequence subfolder).
+if {use_nodes_val}:
+    try:
+        _output_base = r'''{job.effective_output_path}'''
+        _nt = scene.node_tree
+        if _nt is None:
+            print('[BRM] WARNING: scene.node_tree is None; cannot set File Output base_path.')
+        else:
+            _targets = []
+
+            # Prefer exact default node name first (as requested in TODO)
+            _by_name = _nt.nodes.get('File Output')
+            if _by_name and getattr(_by_name, 'bl_idname', '') == 'CompositorNodeOutputFile':
+                _targets.append(_by_name)
+
+            # Fallback: any File Output nodes by type (supports renamed nodes)
+            for _n in _nt.nodes:
+                if getattr(_n, 'bl_idname', '') == 'CompositorNodeOutputFile' and _n not in _targets:
+                    _targets.append(_n)
+
+            if not _targets:
+                print('[BRM] WARNING: no CompositorNodeOutputFile node found in scene:', scene.name)
+            else:
+                for _node in _targets:
+                    _node.base_path = _output_base
+                    print('[BRM] File Output base_path set:', _node.name, '->', _node.base_path)
+    except Exception as _e:
+        print('[BRM] WARNING: could not set File Output base_path:', _e)
+
 # ── Sample override ────────────────────────────────────────────────────────
 {samples_block}
 

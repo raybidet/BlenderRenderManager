@@ -347,6 +347,7 @@ class MainWindow(QMainWindow):
         self._convert_thread: ConvertThread | None       = None
         self._blender_profiles: list[BlenderProfile]   = []
         self._form_dirty: bool                          = False
+        self.job_list_has_focus: bool                   = False
         self._loading_job_into_form: bool               = False
         self._sequential_queue: list[int]               = []
         self._sequential_target_ids: set[int]           = set()
@@ -746,6 +747,9 @@ class MainWindow(QMainWindow):
 
         self.resolution_edit.textChanged.connect(self._on_form_field_changed)
         self._connect_form_dirty_tracking()
+        
+        # Install keyboard shortcut tracking AFTER UI is built
+        self._install_keyboard_focus_tracking()
 
     # ------------------------------------------------------------------ helpers
 
@@ -1398,7 +1402,8 @@ class MainWindow(QMainWindow):
             resolution_pct=data["resolution_pct"],
         )
         self.jobs.append(job)
-        self._refresh_tree()
+        selected_ids, current_id = self._selection_snapshot()
+        self._refresh_tree(selected_ids=selected_ids, current_id=current_id)
         self._auto_save_queue()
         self.status_bar.showMessage(
             f"IPC: Job #{job.job_id} agregado ({os.path.basename(job.blend_file)} / {job.scene}).",
@@ -1486,6 +1491,9 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Store selection ID before refresh
+        old_selected_id = self._selected_job_id
+
         data, err = self._read_job_form()
         if err:
             QMessageBox.critical(self, "Error", err)
@@ -1507,11 +1515,50 @@ class MainWindow(QMainWindow):
 
         self._refresh_tree()
         self._auto_save_queue()
-        if self._selected_job_id == job.job_id:
-            self._update_export_ui(job)
-            self._update_folder_btn(job)
-        self._set_form_dirty(False)
-        self.status_bar.showMessage(f"Job #{job.job_id} actualizado desde el formulario.")
+
+        # Explicitly preserve selection and refresh UI
+        self.queue_tree.blockSignals(True)
+        try:
+            # Re-select the item
+            selected_item = None
+            for i in range(self.queue_tree.topLevelItemCount()):
+                item = self.queue_tree.topLevelItem(i)
+                if item and int(item.text(0)) == old_selected_id:
+                    selected_item = item
+                    self.queue_tree.setCurrentItem(item)
+                    self.queue_tree.scrollToItem(item)
+                    break
+
+            # Reload form and right panel for updated job
+            new_job = self._selected_job()
+            if new_job and new_job.job_id == old_selected_id:
+                self._selected_job_id = old_selected_id
+                self._btn_apply_to_job.setEnabled(new_job.status != RenderJob.STATUS_RUNNING)
+                self._load_job_into_form(new_job)
+                self._update_progress_ui(new_job)
+                self._load_preview(new_job.effective_output_path)
+                self._update_export_ui(new_job)
+                self._update_folder_btn(new_job)
+                
+                # Refresh log
+                self.log_edit.clear()
+                for line in new_job.log_lines:
+                    self._append_log_line(line)
+                if self._log_autoscroll:
+                    self.log_edit.verticalScrollBar().setValue(
+                        self.log_edit.verticalScrollBar().maximum()
+                    )
+            else:
+                # Job disappeared (unlikely) - clear selection
+                self._selected_job_id = None
+                self._btn_apply_to_job.setEnabled(False)
+                self._clear_progress_ui()
+                self.log_edit.clear()
+        finally:
+            self.queue_tree.blockSignals(False)
+            self._set_form_dirty(False)
+
+        self.status_bar.showMessage(f"Job #{old_selected_id} actualizado y selección preservada ✓")
 
     # ------------------------------------------------------------------ Remove
 
@@ -1672,19 +1719,28 @@ class MainWindow(QMainWindow):
             return
 
     def _cancel_selected(self):
-        job = self._selected_job()
-        if not job:
+        jobs = self._selected_jobs()
+        if not jobs:
             return
-        if job.status != RenderJob.STATUS_RUNNING:
-            QMessageBox.information(self, "Info", "Selected job is not running.")
+
+        running = [j for j in jobs if j.status == RenderJob.STATUS_RUNNING]
+        if not running:
+            QMessageBox.information(self, "Info", "No hay jobs seleccionados en estado Running.")
             return
-        if job.process:
-            job.process.terminate()
-        job.status = RenderJob.STATUS_CANCELLED
-        self._refresh_tree()
-        if self._selected_job_id == job.job_id:
+
+        selected_ids, current_id = self._selection_snapshot()
+
+        for job in running:
+            if job.process:
+                job.process.terminate()
+            job.status = RenderJob.STATUS_CANCELLED
+
+        self._refresh_tree(selected_ids=selected_ids, current_id=current_id)
+
+        if self._selected_job_id in {j.job_id for j in running}:
             self._btn_apply_to_job.setEnabled(True)
-        self.status_bar.showMessage(f"Job #{job.job_id} cancelled.")
+
+        self.status_bar.showMessage(f"{len(running)} job(s) cancelado(s).")
 
     # ------------------------------------------------------------------ Signals from threads
 
@@ -1762,9 +1818,34 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ Tree
 
-    def _refresh_tree(self):
+    def _selection_snapshot(self) -> tuple[set[int], int | None]:
+        selected_ids: set[int] = set()
+        for item in self.queue_tree.selectedItems():
+            try:
+                selected_ids.add(int(item.text(0)))
+            except (ValueError, RuntimeError):
+                continue
+
+        current_id: int | None = None
+        current = self.queue_tree.currentItem()
+        if current:
+            try:
+                current_id = int(current.text(0))
+            except (ValueError, RuntimeError):
+                current_id = None
+
+        if current_id is None:
+            current_id = self._selected_job_id
+
+        return selected_ids, current_id
+
+    def _refresh_tree(self, selected_ids: set[int] | None = None, current_id: int | None = None):
         self.queue_tree.setUpdatesEnabled(False)
+        self.queue_tree.blockSignals(True)
         self.queue_tree.clear()
+
+        id_to_item: dict[int, QTreeWidgetItem] = {}
+
         for job in self.jobs:
             blend_short  = os.path.basename(job.blend_file)
             out_short    = ("…" + job.output_path[-17:]) if len(job.output_path) > 20 else job.output_path
@@ -1786,6 +1867,7 @@ class MainWindow(QMainWindow):
                 f"{job.progress}%",
                 frame_str,
             ])
+            id_to_item[job.job_id] = item
             item.setToolTip(1, job.blend_file)
             item.setToolTip(8, job.effective_output_path)
             color = QColor(STATUS_COLOR.get(job.status, C["text"]))
@@ -1804,15 +1886,31 @@ class MainWindow(QMainWindow):
                 lambda text, jid=job.job_id: self._on_table_blender_changed(jid, text)
             )
             self.queue_tree.setItemWidget(item, 3, combo)
-        self.queue_tree.setUpdatesEnabled(True)
 
-        # Restore selection
-        if self._selected_job_id is not None:
-            for i in range(self.queue_tree.topLevelItemCount()):
-                item = self.queue_tree.topLevelItem(i)
-                if item and int(item.text(0)) == self._selected_job_id:
-                    self.queue_tree.setCurrentItem(item)
-                    break
+        restore_ids = selected_ids if selected_ids is not None else set()
+        restore_current = current_id if current_id is not None else self._selected_job_id
+
+        for jid in restore_ids:
+            it = id_to_item.get(jid)
+            if it:
+                it.setSelected(True)
+
+        current_item = id_to_item.get(restore_current) if restore_current is not None else None
+        if current_item is None and restore_ids:
+            first_id = next(iter(restore_ids))
+            current_item = id_to_item.get(first_id)
+
+        if current_item is not None:
+            self.queue_tree.setCurrentItem(current_item)
+            try:
+                self._selected_job_id = int(current_item.text(0))
+            except (ValueError, RuntimeError):
+                pass
+        else:
+            self._selected_job_id = None
+
+        self.queue_tree.blockSignals(False)
+        self.queue_tree.setUpdatesEnabled(True)
 
         self._update_simultaneous_checkbox_enabled()
 
@@ -2236,6 +2334,103 @@ class MainWindow(QMainWindow):
         self._refresh_tree()
         self._auto_save_queue()
         self.status_bar.showMessage(f"{len(created)} job(s) duplicado(s).")
+
+    def _install_keyboard_focus_tracking(self):
+        """Install event filters on form widgets to track focus context."""
+        from PyQt6.QtCore import QEvent
+        widgets_to_track = [
+            self.blend_edit, self.scene_combo, self.sequence_edit,
+            self.output_edit, self.samples_edit, self.resolution_edit,
+            self.frame_start_spin, self.frame_end_spin,
+            self.blender_path_edit, self.profile_combo,
+            self.use_nodes_btn
+        ]
+        for widget in widgets_to_track:
+            widget.installEventFilter(self)
+        self.queue_tree.installEventFilter(self)
+
+        print("[BRM] Keyboard shortcuts tracking installed")
+
+    def _update_focus_context(self, widget) -> None:
+        """Update job_list_has_focus based on current widget focus."""
+        self.job_list_has_focus = (
+            isinstance(widget, QTreeWidget) and 
+            widget == self.queue_tree
+        )
+
+    def eventFilter(self, obj, event):
+        """Override eventFilter for focus tracking."""
+        from PyQt6.QtCore import QEvent
+        etype = event.type()
+        if etype == QEvent.Type.FocusIn:
+            self._update_focus_context(obj)
+        elif etype == QEvent.Type.FocusOut:
+            fw = QApplication.focusWidget()
+            if fw:
+                self._update_focus_context(fw)
+        return super().eventFilter(obj, event)
+
+    def focusInEvent(self, event):
+        fw = self.focusWidget()
+        if fw:
+            self._update_focus_context(fw)
+        super().focusInEvent(event)
+
+    def keyPressEvent(self, event):
+        """
+        Keyboard shortcuts basados en focus context:
+        
+        JOB LIST (queue_tree focus):
+        • Enter: Start Selected o Start All Pending
+        • Delete: Remove selected  
+        • Escape: Cancel selected
+        • F5: Retry selected (Error/Cancelled)
+        
+        FORM focus:
+        • Enter: Add Job o Apply changes
+        """
+        if event.isAutoRepeat():
+            return super().keyPressEvent(event)
+
+        key = event.key()
+
+        # JOB LIST FOCUS
+        if self.job_list_has_focus:
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                selected = self._selected_jobs()
+                if selected:
+                    self._start_selected()
+                else:
+                    self._start_all_pending()
+                event.accept()
+                return
+
+            elif key == Qt.Key.Key_Delete:
+                self._remove_selected()
+                event.accept()
+                return
+
+            elif key == Qt.Key.Key_Escape:
+                self._cancel_selected()
+                event.accept()
+                return
+
+            elif key == Qt.Key.Key_F5:
+                self._retry_selected()
+                event.accept()
+                return
+
+        # FORM FOCUS - Add/Edit job
+        else:
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if self._selected_job_id is not None:
+                    self._apply_changes_to_selected_job()
+                else:
+                    self._add_job()
+                event.accept()
+                return
+
+        super().keyPressEvent(event)
 
     # ------------------------------------------------------------------ Log colors
 
