@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec for macOS App Bundle
 # Usage: pyinstaller macos.spec --clean --noconfirm
-# Results in dist/Juice.app (universal2 for Intel/Apple Silicon)
+# Results in dist/Juice.app (arm64 build for Apple Silicon)
 
 block_cipher = None
 
@@ -65,7 +65,7 @@ exe = EXE(pyz,
     strip=False,
     upx=True,
     console=False,  # No terminal on launch
-    target_arch='universal2',  # Intel + Apple Silicon
+    target_arch='arm64',  # Apple Silicon CI runner compatibility
 )
 
 coll = COLLECT(

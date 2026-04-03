@@ -57,13 +57,13 @@ jobs:
     - name: Create distributable ZIP
       run: |
         cd dist
-        zip -r Juice-macos-${{ github.sha }}.zip Juice.app
+        zip -r Juice-macos-arm64-${{ github.sha }}.zip Juice.app
         ls -la *.zip
 
     - name: Upload macOS Artifact
       uses: actions/upload-artifact@v5
       with:
-        name: Juice-macos-${{ github.sha }}
+        name: Juice-macos-arm64-${{ github.sha }}
         path: dist/*.zip
         retention-days: 30
 
@@ -73,8 +73,8 @@ jobs:
         gh release create \
           "${{ github.ref_name }}" \
           --title "Juice v${{ github.ref_name }} macOS" \
-          --notes "macOS universal2 app bundle (Intel/Apple Silicon)" \
-          "dist/Juice-macos-*.zip"
+          --notes "macOS arm64 app bundle (Apple Silicon)" \
+          "dist/Juice-macos-arm64-*.zip"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
