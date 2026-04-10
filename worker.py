@@ -12,6 +12,7 @@ to CPU.  We inject a Python script (--python <tmpfile>) that:
 
 This is the same sequence Blender performs when launched normally.
 """
+
 from __future__ import annotations
 import json
 import os
@@ -24,8 +25,8 @@ from typing import Callable, Optional
 from models import RenderJob
 
 LOG_MAX_LINES = 6000
-TREE_THROTTLE    = 0.25   # minimum seconds between tree-refresh signals
-ROLLING_ETA_WIN  = 8      # number of recent frames used for rolling ETA
+TREE_THROTTLE = 0.25  # minimum seconds between tree-refresh signals
+ROLLING_ETA_WIN = 8  # number of recent frames used for rolling ETA
 
 
 def build_render_script(job: RenderJob) -> str:
@@ -38,9 +39,7 @@ def build_render_script(job: RenderJob) -> str:
             f"print('[BRM] Samples override:', {job.samples_override})"
         )
     else:
-        samples_block = (
-            "print('[BRM] Samples: scene default =', scene.cycles.samples)"
-        )
+        samples_block = "print('[BRM] Samples: scene default =', scene.cycles.samples)"
 
     return f"""\
 import bpy
@@ -132,7 +131,22 @@ print('[BRM] render.engine  =', scene.render.engine)
 print('[BRM] resolution_percentage =', scene.render.resolution_percentage)
 print('[BRM] resolution_x =', scene.render.resolution_x)
 print('[BRM] resolution_y =', scene.render.resolution_y)
+
+# ── Camera selection ─────────────────────────────────────────────────────────
+if {repr(job.camera)}:
+    _cam = bpy.data.objects.get({repr(job.camera)})
+    if _cam and _cam.type == 'CAMERA':
+        scene.camera = _cam
+        print('[BRM] Camera set to:', {repr(job.camera)})
+    else:
+        print('[BRM] WARNING: camera not found:', {repr(job.camera)})
+else:
+    if scene.camera:
+        print('[BRM] Using scene default camera:', scene.camera.name)
+    else:
+        print('[BRM] No camera set (scene default)')
 """
+
 
 def get_blend_info(blend_file: str, blender_exec: str) -> dict:
     """
@@ -156,7 +170,8 @@ def get_blend_info(blend_file: str, blender_exec: str) -> dict:
         "'name':s.name,"
         "'samples':getattr(s.cycles,'samples',128),"
         "'fps':round(s.render.fps/max(s.render.fps_base,0.001),3),"
-        "'resolution_pct':float(s.render.resolution_percentage)"
+        "'resolution_pct':float(s.render.resolution_percentage),"
+        "'cameras':[c.name for c in s.objects if c.type=='CAMERA']"
         "} for s in bpy.data.scenes];"
         "print('BLEND_INFO:'+json.dumps(data,ensure_ascii=False))"
     )
@@ -165,42 +180,52 @@ def get_blend_info(blend_file: str, blender_exec: str) -> dict:
         "samples": {"Scene": 128},
         "fps": {"Scene": 24.0},
         "resolution_pct": {"Scene": 100.0},
+        "cameras": {"Scene": []},
     }
     try:
-            r = subprocess.run(
-                [blender_exec, "--background", blend_file, "--python-expr", script],
-                capture_output=True, encoding="utf-8", errors="replace", timeout=45,
-                creationflags=0,
-            )
-            for line in r.stdout.splitlines():
-                if line.startswith("BLEND_INFO:"):
-                    raw = json.loads(line[len("BLEND_INFO:"):])
-                    scenes: list[str] = []
-                    samples: dict[str, int] = {}
-                    fps: dict[str, float] = {}
-                    resolution_pct: dict[str, float] = {}
-                    for entry in raw:
-                        name = str(entry.get("name", "Scene"))
-                        scenes.append(name)
-                        try:
-                            samples[name] = int(entry.get("samples", 128))
-                        except (ValueError, TypeError):
-                            samples[name] = 128
-                        try:
-                            fps[name] = float(entry.get("fps", 24.0))
-                        except (ValueError, TypeError):
-                            fps[name] = 24.0
-                        try:
-                            resolution_pct[name] = float(entry.get("resolution_pct", 100.0))
-                        except (ValueError, TypeError):
-                            resolution_pct[name] = 100.0
-                    if scenes:
-                        return {
-                            "scenes": scenes,
-                            "samples": samples,
-                            "fps": fps,
-                            "resolution_pct": resolution_pct,
-                        }
+        r = subprocess.run(
+            [blender_exec, "--background", blend_file, "--python-expr", script],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=45,
+            creationflags=0,
+        )
+        for line in r.stdout.splitlines():
+            if line.startswith("BLEND_INFO:"):
+                raw = json.loads(line[len("BLEND_INFO:") :])
+                scenes: list[str] = []
+                samples: dict[str, int] = {}
+                fps: dict[str, float] = {}
+                resolution_pct: dict[str, float] = {}
+                cameras: dict[str, list[str]] = {}
+                for entry in raw:
+                    name = str(entry.get("name", "Scene"))
+                    scenes.append(name)
+                    try:
+                        samples[name] = int(entry.get("samples", 128))
+                    except (ValueError, TypeError):
+                        samples[name] = 128
+                    try:
+                        fps[name] = float(entry.get("fps", 24.0))
+                    except (ValueError, TypeError):
+                        fps[name] = 24.0
+                    try:
+                        resolution_pct[name] = float(entry.get("resolution_pct", 100.0))
+                    except (ValueError, TypeError):
+                        resolution_pct[name] = 100.0
+                    try:
+                        cameras[name] = list(entry.get("cameras", []))
+                    except (ValueError, TypeError):
+                        cameras[name] = []
+                if scenes:
+                    return {
+                        "scenes": scenes,
+                        "samples": samples,
+                        "fps": fps,
+                        "resolution_pct": resolution_pct,
+                        "cameras": cameras,
+                    }
     except Exception:
         pass
     return fallback
@@ -218,18 +243,18 @@ class RenderWorker:
         job: RenderJob,
         on_log: Callable[[int, str], None],
         on_progress: Callable[[int], None],
-        on_done: Callable[[int, str], None],   # job_id, final_status
+        on_done: Callable[[int, str], None],  # job_id, final_status
         on_frame_saved: Callable[[int], None],
         blender_executable: Optional[str] = None,
     ):
-        self.job               = job
-        self._on_log           = on_log
-        self._on_progress      = on_progress
-        self._on_done          = on_done
-        self._on_frame_saved   = on_frame_saved
+        self.job = job
+        self._on_log = on_log
+        self._on_progress = on_progress
+        self._on_done = on_done
+        self._on_frame_saved = on_frame_saved
         self._blender_executable = blender_executable
         self._tmp_script: Optional[str] = None
-        self._recent_frame_times: list[float] = []   # rolling ETA window
+        self._recent_frame_times: list[float] = []  # rolling ETA window
 
     # ------------------------------------------------------------------
     def run(self) -> None:
@@ -256,12 +281,18 @@ class RenderWorker:
         exe = self._blender_executable or job.blender_exec
         cmd = [
             exe,
-            "--background", job.blend_file,
-            "--scene",      job.scene,
-            "--python",     self._tmp_script,
-            "--render-output", output_template,
-            "--frame-start",   str(job.frame_start),
-            "--frame-end",     str(job.frame_end),
+            "--background",
+            job.blend_file,
+            "--scene",
+            job.scene,
+            "--python",
+            self._tmp_script,
+            "--render-output",
+            output_template,
+            "--frame-start",
+            str(job.frame_start),
+            "--frame-end",
+            str(job.frame_end),
             "--render-anim",
         ]
 
@@ -319,7 +350,7 @@ class RenderWorker:
                                     if len(self._recent_frame_times) > ROLLING_ETA_WIN:
                                         self._recent_frame_times.pop(0)
                             job._prev_tracked_frame = frame_num
-                            job._frame_wall_start   = time.monotonic()
+                            job._frame_wall_start = time.monotonic()
 
                         job.current_frame = frame_num
                         job.progress = int(
@@ -331,7 +362,9 @@ class RenderWorker:
                             remaining = job.total_frames - frames_completed
                             if self._recent_frame_times:
                                 # Rolling average of last N frames (adapts to scene complexity)
-                                avg = sum(self._recent_frame_times) / len(self._recent_frame_times)
+                                avg = sum(self._recent_frame_times) / len(
+                                    self._recent_frame_times
+                                )
                             elif frames_completed > 0:
                                 # Fallback: global average until we have enough samples
                                 avg = job.elapsed_seconds / frames_completed
@@ -363,7 +396,7 @@ class RenderWorker:
                         job.last_frame_elapsed = (
                             time.monotonic() - job._frame_wall_start
                         )
-                    job.progress    = 100
+                    job.progress = 100
                     job.eta_seconds = 0
                     self._finish(job.STATUS_DONE)
                 else:

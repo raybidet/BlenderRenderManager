@@ -1,6 +1,7 @@
 """
 models.py — RenderJob data model and JSON persistence for Juice | Render Manager for Blender.
 """
+
 from __future__ import annotations
 import json
 import os
@@ -11,16 +12,18 @@ from subprocess import Popen
 from typing import ClassVar, Optional
 
 import shutil
+
 DEFAULT_BLENDER = shutil.which("blender") or (
     "/Applications/Blender.app/Contents/MacOS/Blender"
-    if sys.platform == "darwin" else
-    r"F:\Program Files\blender.exe"
+    if sys.platform == "darwin"
+    else r"F:\Program Files\blender.exe"
 )
 
 
 @dataclass
 class BlenderProfile:
     """Named path to a Blender executable (e.g. different versions)."""
+
     name: str
     path: str
 
@@ -38,9 +41,11 @@ class BlenderProfile:
 def default_blender_profiles() -> list[BlenderProfile]:
     return [BlenderProfile(name="Default", path=DEFAULT_BLENDER or "")]
 
+
 # When running as a PyInstaller frozen bundle the install dir may be read-only
 # (e.g. C:\Program Files\…).  Store user data in %APPDATA% instead.
 import sys as _sys
+
 if getattr(_sys, "frozen", False):
     _cfg_dir = os.path.join(
         os.environ.get("APPDATA", os.path.expanduser("~")),
@@ -61,15 +66,16 @@ class RenderJob:
     # ---- user config ----
     blend_file: str = ""
     scene: str = "Scene"
-    sequence_name: str = ""        # user-defined label, used as output subfolder name
+    sequence_name: str = ""  # user-defined label, used as output subfolder name
     frame_start: int = 1
     frame_end: int = 250
-    output_path: str = ""          # base output directory
+    output_path: str = ""  # base output directory
     blender_exec: str = DEFAULT_BLENDER
-    blender_profile: str = ""      # name in BlenderProfile list; empty = custom path only
+    blender_profile: str = ""  # name in BlenderProfile list; empty = custom path only
     use_nodes: bool = False
-    samples_override: Optional[int] = None   # None = use scene default
-    resolution_pct: Optional[float] = None      # None = use scene default (100%)
+    samples_override: Optional[int] = None  # None = use scene default
+    resolution_pct: Optional[float] = None  # None = use scene default (100%)
+    camera: Optional[str] = None  # None = usar cámara del proyecto Blender
 
     # ---- runtime state (not persisted) ----
     status: str = field(default="Pending", init=False)
@@ -116,34 +122,37 @@ class RenderJob:
         return max(1, self.frame_end - self.frame_start + 1)
 
     def reset_for_run(self):
-        self.status              = self.STATUS_RUNNING
-        self.progress            = 0
-        self.current_frame       = None
-        self.log_lines           = []
-        self.start_time          = time.monotonic()
-        self.elapsed_seconds     = 0.0
-        self.eta_seconds         = None
-        self.last_frame_elapsed  = None
-        self._frame_wall_start   = None
+        self.status = self.STATUS_RUNNING
+        self.progress = 0
+        self.current_frame = None
+        self.log_lines = []
+        self.start_time = time.monotonic()
+        self.elapsed_seconds = 0.0
+        self.eta_seconds = None
+        self.last_frame_elapsed = None
+        self._frame_wall_start = None
         self._prev_tracked_frame = None
-        self._detected_device    = None
-        self._is_paused          = False
+        self._detected_device = None
+        self._is_paused = False
 
     def to_dict(self) -> dict:
         return {
-            "job_id":          self.job_id,
-            "blend_file":      self.blend_file,
-            "scene":           self.scene,
-            "sequence_name":   self.sequence_name,
-            "frame_start":     self.frame_start,
-            "frame_end":       self.frame_end,
-            "output_path":     self.output_path,
-            "blender_exec":    self.blender_exec,
+            "job_id": self.job_id,
+            "blend_file": self.blend_file,
+            "scene": self.scene,
+            "sequence_name": self.sequence_name,
+            "frame_start": self.frame_start,
+            "frame_end": self.frame_end,
+            "output_path": self.output_path,
+            "blender_exec": self.blender_exec,
             "blender_profile": self.blender_profile,
-            "use_nodes":       self.use_nodes,
+            "use_nodes": self.use_nodes,
             "samples_override": self.samples_override,
-            "resolution_pct": self.resolution_pct if self.resolution_pct is not None else None,
-            "status":          self.status,
+            "resolution_pct": self.resolution_pct
+            if self.resolution_pct is not None
+            else None,
+            "camera": self.camera,
+            "status": self.status,
         }
 
     @property
@@ -165,11 +174,14 @@ class RenderJob:
             use_nodes=d.get("use_nodes", False),
             samples_override=d.get("samples_override"),
             resolution_pct=d.get("resolution_pct"),
+            camera=d.get("camera"),
         )
         job.job_id = d["job_id"]
         raw_status = d.get("status", cls.STATUS_PENDING)
         # Jobs that were "Running" when the app closed are considered interrupted
-        job.status = cls.STATUS_ERROR if raw_status == cls.STATUS_RUNNING else raw_status
+        job.status = (
+            cls.STATUS_ERROR if raw_status == cls.STATUS_RUNNING else raw_status
+        )
         return job
 
 
@@ -188,6 +200,7 @@ def resolve_blender_exec(job: RenderJob, profiles: list[BlenderProfile]) -> str:
 # Persistence helpers
 # ---------------------------------------------------------------------------
 
+
 def save_config(jobs: list[RenderJob], profiles: list[BlenderProfile]) -> None:
     payload = {
         "blender_profiles": [p.to_dict() for p in profiles],
@@ -199,10 +212,13 @@ def save_config(jobs: list[RenderJob], profiles: list[BlenderProfile]) -> None:
 
 def load_config() -> tuple[list[RenderJob], list[BlenderProfile]]:
     # Migrate old config if exists
-    old_dir = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "BlenderRenderManager")
+    old_dir = os.path.join(
+        os.environ.get("APPDATA", os.path.expanduser("~")), "BlenderRenderManager"
+    )
     old_config = os.path.join(old_dir, "render_jobs.json")
     if os.path.isfile(old_config) and not os.path.isfile(CONFIG_FILE):
         import shutil
+
         try:
             os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
             shutil.copy2(old_config, CONFIG_FILE)
@@ -243,7 +259,9 @@ def save_jobs(jobs: list[RenderJob]) -> None:
         try:
             with open(CONFIG_FILE, encoding="utf-8") as f:
                 data = json.load(f)
-            if isinstance(data, dict) and isinstance(data.get("blender_profiles"), list):
+            if isinstance(data, dict) and isinstance(
+                data.get("blender_profiles"), list
+            ):
                 raw_p = data["blender_profiles"]
                 if raw_p:
                     profiles = [BlenderProfile.from_dict(x) for x in raw_p]
@@ -255,4 +273,3 @@ def save_jobs(jobs: list[RenderJob]) -> None:
 def load_jobs() -> list[RenderJob]:
     jobs, _ = load_config()
     return jobs
-

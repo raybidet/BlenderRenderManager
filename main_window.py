@@ -5,6 +5,7 @@ PyQt6 runs the UI in the main thread but dispatches render work to QThreads.
 Cross-thread communication uses Qt Signals, which are thread-safe by design —
 no more Tkinter after() polling or event-loop starvation.
 """
+
 from __future__ import annotations
 
 import os
@@ -19,22 +20,50 @@ import json
 
 try:
     import winsound as _winsound
+
     _HAS_WINSOUND = True
 except ImportError:
     _winsound = None
     _HAS_WINSOUND = False
 
 from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QObject, QTimer, QSize,
+    Qt,
+    QThread,
+    pyqtSignal,
+    QObject,
+    QTimer,
+    QSize,
 )
 from PyQt6.QtGui import QColor, QPixmap, QImage, QFont, QIcon
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout,
-    QGridLayout, QLabel, QPushButton, QLineEdit, QSpinBox,
-    QComboBox, QProgressBar, QTextEdit, QFileDialog, QMessageBox,
-    QTreeWidget, QTreeWidgetItem, QGroupBox, QSizePolicy,
-    QScrollArea, QCheckBox, QFrame, QStatusBar, QApplication,
-    QDialog, QDialogButtonBox, QListWidget, QFormLayout,
+    QMainWindow,
+    QWidget,
+    QSplitter,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QSpinBox,
+    QComboBox,
+    QProgressBar,
+    QTextEdit,
+    QFileDialog,
+    QMessageBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QGroupBox,
+    QSizePolicy,
+    QScrollArea,
+    QCheckBox,
+    QFrame,
+    QStatusBar,
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QListWidget,
+    QFormLayout,
 )
 
 from models import (
@@ -50,54 +79,51 @@ from ipc_server import JuiceIPCServer
 from video_presets import VIDEO_PRESETS, PREVIEW_PRESET, preset_names, preset_by_name
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # Colour palette (Catppuccin Mocha)
 # ---------------------------------------------------------------------------
 C = {
-    "bg":      "#1e1e2e",
+    "bg": "#1e1e2e",
     "surface": "#313244",
     "overlay": "#45475a",
-    "text":    "#cdd6f4",
+    "text": "#cdd6f4",
     "subtext": "#585b70",
-    "accent":  "#89b4fa",
-    "green":   "#a6e3a1",
-    "red":     "#f38ba8",
-    "peach":   "#fab387",
-    "lavender":"#b4befe",
-    "mauve":   "#cba6f7",
-    "yellow":  "#f9e2af",
-    "teal":    "#94e2d5",
+    "accent": "#89b4fa",
+    "green": "#a6e3a1",
+    "red": "#f38ba8",
+    "peach": "#fab387",
+    "lavender": "#b4befe",
+    "mauve": "#cba6f7",
+    "yellow": "#f9e2af",
+    "teal": "#94e2d5",
 }
 
 # Sentinel label in profile combo for free-form blender.exe path
 CUSTOM_PROFILE_LABEL = "Custom path…"
 
 STATUS_COLOR = {
-    RenderJob.STATUS_PENDING:   C["subtext"],
-    RenderJob.STATUS_RUNNING:   C["peach"],
-    RenderJob.STATUS_PAUSED:    C["yellow"],
-    RenderJob.STATUS_DONE:      C["green"],
-    RenderJob.STATUS_ERROR:     C["red"],
+    RenderJob.STATUS_PENDING: C["subtext"],
+    RenderJob.STATUS_RUNNING: C["peach"],
+    RenderJob.STATUS_PAUSED: C["yellow"],
+    RenderJob.STATUS_DONE: C["green"],
+    RenderJob.STATUS_ERROR: C["red"],
     RenderJob.STATUS_CANCELLED: C["overlay"],
 }
 
 STYLESHEET = f"""
 QWidget {{
-    background-color: {C['bg']};
-    color: {C['text']};
+    background-color: {C["bg"]};
+    color: {C["text"]};
     font-family: "Segoe UI";
     font-size: 10pt;
 }}
 QGroupBox {{
-    border: 1px solid {C['surface']};
+    border: 1px solid {C["surface"]};
     border-radius: 6px;
     margin-top: 8px;
     padding: 6px;
     font-weight: bold;
-    color: {C['accent']};
+    color: {C["accent"]};
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;
@@ -105,111 +131,111 @@ QGroupBox::title {{
     top: -4px;
 }}
 QPushButton {{
-    background-color: {C['surface']};
-    color: {C['text']};
+    background-color: {C["surface"]};
+    color: {C["text"]};
     border: none;
     border-radius: 4px;
     padding: 5px 12px;
 }}
-QPushButton:hover  {{ background-color: {C['accent']}; color: {C['bg']}; }}
-QPushButton:pressed {{ background-color: {C['lavender']}; color: {C['bg']}; }}
+QPushButton:hover  {{ background-color: {C["accent"]}; color: {C["bg"]}; }}
+QPushButton:pressed {{ background-color: {C["lavender"]}; color: {C["bg"]}; }}
 QPushButton#accent {{
-    background-color: {C['accent']};
-    color: {C['bg']};
+    background-color: {C["accent"]};
+    color: {C["bg"]};
     font-weight: bold;
 }}
-QPushButton#accent:hover {{ background-color: {C['lavender']}; }}
-QPushButton#danger {{ background-color: {C['surface']}; color: {C['red']}; }}
-QPushButton#danger:hover {{ background-color: {C['red']}; color: {C['bg']}; }}
-QPushButton#nodes_on  {{ background-color: {C['green']};  color: {C['bg']}; font-weight: bold; }}
-QPushButton#nodes_off {{ background-color: {C['red']};    color: {C['bg']}; font-weight: bold; }}
+QPushButton#accent:hover {{ background-color: {C["lavender"]}; }}
+QPushButton#danger {{ background-color: {C["surface"]}; color: {C["red"]}; }}
+QPushButton#danger:hover {{ background-color: {C["red"]}; color: {C["bg"]}; }}
+QPushButton#nodes_on  {{ background-color: {C["green"]};  color: {C["bg"]}; font-weight: bold; }}
+QPushButton#nodes_off {{ background-color: {C["red"]};    color: {C["bg"]}; font-weight: bold; }}
 QLineEdit, QSpinBox, QComboBox {{
-    background-color: {C['surface']};
-    color: {C['text']};
-    border: 1px solid {C['overlay']};
+    background-color: {C["surface"]};
+    color: {C["text"]};
+    border: 1px solid {C["overlay"]};
     border-radius: 4px;
     padding: 3px 6px;
-    selection-background-color: {C['accent']};
+    selection-background-color: {C["accent"]};
 }}
 QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{
-    border: 1px solid {C['accent']};
+    border: 1px solid {C["accent"]};
 }}
 QComboBox QAbstractItemView {{
-    background-color: {C['surface']};
-    color: {C['text']};
-    selection-background-color: {C['accent']};
-    selection-color: {C['bg']};
+    background-color: {C["surface"]};
+    color: {C["text"]};
+    selection-background-color: {C["accent"]};
+    selection-color: {C["bg"]};
 }}
 QProgressBar {{
-    background-color: {C['surface']};
+    background-color: {C["surface"]};
     border: none;
     border-radius: 4px;
     height: 12px;
     text-align: center;
-    color: {C['bg']};
+    color: {C["bg"]};
 }}
 QProgressBar::chunk {{
-    background-color: {C['accent']};
+    background-color: {C["accent"]};
     border-radius: 4px;
 }}
 QTreeWidget {{
-    background-color: {C['surface']};
-    alternate-background-color: {C['bg']};
+    background-color: {C["surface"]};
+    alternate-background-color: {C["bg"]};
     border: none;
     border-radius: 4px;
 }}
 QTreeWidget::item:selected {{
-    background-color: {C['overlay']};
-    color: {C['text']};
+    background-color: {C["overlay"]};
+    color: {C["text"]};
 }}
 QHeaderView::section {{
-    background-color: {C['bg']};
-    color: {C['accent']};
+    background-color: {C["bg"]};
+    color: {C["accent"]};
     font-weight: bold;
     border: none;
     padding: 4px;
 }}
 QTextEdit {{
     background-color: #181825;
-    color: {C['green']};
+    color: {C["green"]};
     border: none;
     font-family: "Consolas";
     font-size: 9pt;
 }}
 QScrollBar:vertical {{
-    background: {C['surface']};
+    background: {C["surface"]};
     width: 8px;
     border-radius: 4px;
 }}
 QScrollBar::handle:vertical {{
-    background: {C['overlay']};
+    background: {C["overlay"]};
     border-radius: 4px;
     min-height: 20px;
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
 QScrollBar:horizontal {{
-    background: {C['surface']};
+    background: {C["surface"]};
     height: 8px;
     border-radius: 4px;
 }}
 QScrollBar::handle:horizontal {{
-    background: {C['overlay']};
+    background: {C["overlay"]};
     border-radius: 4px;
     min-width: 20px;
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
 QSplitter::handle {{
-    background: {C['overlay']};
+    background: {C["overlay"]};
     width: 4px;
     height: 4px;
 }}
-QStatusBar {{ color: {C['subtext']}; }}
+QStatusBar {{ color: {C["subtext"]}; }}
 QLabel#section_label {{
-    color: {C['accent']};
+    color: {C["accent"]};
     font-weight: bold;
 }}
 QLabel#value_label {{
-    color: {C['text']};
+    color: {C["text"]};
     font-size: 10pt;
 }}
 """
@@ -228,11 +254,12 @@ def fmt_duration(seconds) -> str:
 # Qt Signals bridge (runs in QThread, emits to main thread safely)
 # ---------------------------------------------------------------------------
 
+
 class WorkerSignals(QObject):
-    log_line     = pyqtSignal(int, str)       # job_id, line
-    progress     = pyqtSignal(int)            # job_id
-    frame_saved  = pyqtSignal(int)            # job_id
-    done         = pyqtSignal(int, str)       # job_id, status
+    log_line = pyqtSignal(int, str)  # job_id, line
+    progress = pyqtSignal(int)  # job_id
+    frame_saved = pyqtSignal(int)  # job_id
+    done = pyqtSignal(int, str)  # job_id, status
 
 
 class RenderThread(QThread):
@@ -243,8 +270,8 @@ class RenderThread(QThread):
         blender_executable: str | None = None,
     ):
         super().__init__()
-        self.job                = job
-        self.signals            = signals
+        self.job = job
+        self.signals = signals
         self._blender_executable = blender_executable
 
     def run(self):
@@ -261,11 +288,12 @@ class RenderThread(QThread):
 
 class BlendInfoThread(QThread):
     """Queries blend file info without blocking the UI."""
+
     finished = pyqtSignal(dict)
 
     def __init__(self, blend_file: str, blender_exec: str):
         super().__init__()
-        self.blend_file   = blend_file
+        self.blend_file = blend_file
         self.blender_exec = blender_exec
 
     def run(self):
@@ -275,7 +303,8 @@ class BlendInfoThread(QThread):
 
 class ConvertThread(QThread):
     """Converts a PNG sequence to a video file using FFmpeg (from PATH)."""
-    finished = pyqtSignal(bool, str)   # success, message
+
+    finished = pyqtSignal(bool, str)  # success, message
 
     def __init__(
         self,
@@ -290,17 +319,20 @@ class ConvertThread(QThread):
         self.output_path = output_path
         self.file_prefix = file_prefix
         self.frame_start = frame_start
-        self.fps         = fps
+        self.fps = fps
         self.output_file = output_file
-        self.preset      = preset
+        self.preset = preset
 
     def run(self):
         input_pattern = os.path.join(self.output_path, f"{self.file_prefix}_%04d.png")
         cmd = [
             "ffmpeg",
-            "-framerate", str(self.fps),
-            "-start_number", str(self.frame_start),
-            "-i", input_pattern,
+            "-framerate",
+            str(self.fps),
+            "-start_number",
+            str(self.frame_start),
+            "-i",
+            input_pattern,
             *self.preset["ffmpeg_args"],
             "-y",
             self.output_file,
@@ -311,30 +343,242 @@ class ConvertThread(QThread):
                 capture_output=True,
                 encoding="utf-8",
                 errors="replace",
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                creationflags=subprocess.CREATE_NO_WINDOW
+                if sys.platform == "win32"
+                else 0,
             )
             if result.returncode == 0:
-                self.finished.emit(True, f"Video guardado en: {self.output_file}")
+                self.finished.emit(True, f"Video saved to: {self.output_file}")
             else:
                 err = (result.stderr or "").strip()
-                self.finished.emit(False, err[-800:] if err else "FFmpeg retornó error.")
+                self.finished.emit(
+                    False, err[-800:] if err else "FFmpeg returned an error."
+                )
         except FileNotFoundError:
             self.finished.emit(
                 False,
-                "FFmpeg no encontrado en PATH.\n"
-                "Instalá FFmpeg y asegurate de que esté en las variables de entorno del sistema.",
+                "FFmpeg not found in PATH.\n"
+                "Install FFmpeg and make sure it's in the system environment variables.",
             )
         except Exception as e:
             self.finished.emit(False, str(e))
-
 
 
 # ---------------------------------------------------------------------------
 # Main Window
 # ---------------------------------------------------------------------------
 
-class MainWindow(QMainWindow):
 
+class DraggableQueueTree(QTreeWidget):
+    items_reordered = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
+        self.setDropIndicatorShown(True)
+        self._main_window: MainWindow | None = None
+        self._drag_source_row: int | None = None
+        self._drag_widget_state: dict[int, dict[int, str]] = {}
+
+    def set_main_window(self, mw: "MainWindow"):
+        self._main_window = mw
+
+    def _save_widget_state(self, item):
+        if not item:
+            return
+        try:
+            job_id = int(item.text(0))
+        except (ValueError, AttributeError):
+            return
+        state = {}
+        for col in range(item.columnCount()):
+            widget = self.itemWidget(item, col)
+            if widget and isinstance(widget, QComboBox):
+                state[col] = widget.currentText()
+        if state:
+            self._drag_widget_state[job_id] = state
+
+    def _restore_widget_state(self, item):
+        if not item:
+            return
+        try:
+            job_id = int(item.text(0))
+        except (ValueError, AttributeError):
+            return
+        if job_id not in self._drag_widget_state:
+            return
+        state = self._drag_widget_state[job_id]
+        main_window = self._main_window
+        for col, text in state.items():
+            combo = QComboBox(self)
+            for p in main_window._blender_profiles:
+                combo.addItem(p.name)
+            combo.addItem(CUSTOM_PROFILE_LABEL)
+            idx = combo.findText(text)
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            combo.currentTextChanged.connect(
+                lambda t, jid=job_id: main_window._on_table_blender_changed(jid, t)
+            )
+            self.setItemWidget(item, col, combo)
+
+    def startDrag(self, supportedActions):
+        if not self._main_window:
+            return super().startDrag(supportedActions)
+
+        selected = self.selectedItems()
+        if len(selected) != 1:
+            return
+
+        item = selected[0]
+        if item and item.text(0).isdigit():
+            job = next(
+                (j for j in self._main_window.jobs if j.job_id == int(item.text(0))),
+                None,
+            )
+            if job and job.status in (
+                RenderJob.STATUS_RUNNING,
+                RenderJob.STATUS_PAUSED,
+            ):
+                return
+            self._drag_source_row = self.indexOfTopLevelItem(item)
+            self._save_widget_state(item)
+            super().startDrag(supportedActions)
+
+    def dropEvent(self, event):
+        if not self._main_window:
+            super().dropEvent(event)
+            return
+
+        if self._drag_source_row is None:
+            super().dropEvent(event)
+            return
+
+        if self._drag_source_row >= self.topLevelItemCount():
+            self._drag_source_row = None
+            return
+
+        source_item = self.topLevelItem(self._drag_source_row)
+        if not source_item:
+            self._drag_source_row = None
+            return
+
+        drop_pos = event.position().toPoint()
+        target_item = self.itemAt(drop_pos)
+
+        if target_item and target_item == source_item:
+            self._drag_source_row = None
+            self._drag_widget_state.clear()
+            return
+
+        target_row = (
+            self.indexOfTopLevelItem(target_item)
+            if target_item
+            else self.topLevelItemCount() - 1
+        )
+
+        if target_row < 0:
+            target_row = self._drag_source_row
+
+        item_data_list = []
+        for i in range(self.topLevelItemCount()):
+            item = self.topLevelItem(i)
+            if item:
+                cols = item.columnCount()
+                data = [item.text(c) for c in range(cols)]
+                item_data_list.append(data)
+
+        if self._drag_source_row >= len(item_data_list):
+            self._drag_source_row = len(item_data_list) - 1
+
+        moved_data = item_data_list.pop(self._drag_source_row)
+
+        new_target = target_row if target_row > self._drag_source_row else target_row
+        if new_target >= len(item_data_list):
+            item_data_list.append(moved_data)
+        else:
+            item_data_list.insert(new_target, moved_data)
+
+        self.blockSignals(True)
+        self.setUpdatesEnabled(False)
+
+        self.clear()
+
+        for data in item_data_list:
+            new_item = QTreeWidgetItem(data)
+            self.addTopLevelItem(new_item)
+
+        self.blockSignals(False)
+        self.setUpdatesEnabled(True)
+
+        for i in range(self.topLevelItemCount()):
+            item = self.topLevelItem(i)
+            if item:
+                try:
+                    jid = int(item.text(0))
+                    if jid in self._drag_widget_state:
+                        self._restore_widget_state(item)
+                except (ValueError, AttributeError):
+                    pass
+                item.setSizeHint(0, QSize(0, 28))
+
+        self.resizeColumnToContents(0)
+
+        jobs = list(self._main_window.jobs)
+        new_order = []
+        for i in range(self.topLevelItemCount()):
+            item = self.topLevelItem(i)
+            if item:
+                try:
+                    jid = int(item.text(0))
+                    job = next((j for j in jobs if j.job_id == jid), None)
+                    if job:
+                        new_order.append(job)
+                except (ValueError, AttributeError):
+                    continue
+
+        if len(new_order) == len(jobs) and new_order != jobs:
+            self._main_window.jobs = new_order
+
+        self._drag_source_row = None
+        self._drag_widget_state.clear()
+
+    def _create_tree_item(self, job):
+        blend_short = os.path.basename(job.blend_file)
+        out_short = (
+            ("…" + job.output_path[-17:])
+            if len(job.output_path) > 20
+            else job.output_path
+        )
+        frame_str = str(job.current_frame) if job.current_frame is not None else "—"
+        samples_str = str(job.samples_override) if job.samples_override else "def"
+        res_str = (
+            f"{job.resolution_pct:.0f}" if job.resolution_pct is not None else "def"
+        )
+        blender_str = job.blender_profile or "default"
+        camera_str = job.camera or "—"
+        item = QTreeWidgetItem(
+            [
+                str(job.job_id),
+                blend_short,
+                job.scene,
+                camera_str,
+                blender_str,
+                samples_str,
+                res_str,
+                job.sequence_name or "—",
+                f"{job.frame_start}–{job.frame_end}",
+                out_short,
+                job.status,
+                f"{job.progress}%",
+                frame_str,
+            ]
+        )
+        return item
+
+
+class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Juice | Render Manager for Blender")
@@ -343,23 +587,24 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1000, 660)
         self.setStyleSheet(STYLESHEET)
 
-        self.jobs: list[RenderJob]                       = []
-        self.threads: dict[int, RenderThread]            = {}
-        self.signals: dict[int, WorkerSignals]           = {}
-        self._selected_job_id: int | None                = None
-        self._log_autoscroll: bool                       = True
-        self._blend_info_cache: dict                     = {}
-        self._blend_info_thread: BlendInfoThread | None  = None
-        self._convert_thread: ConvertThread | None       = None
-        self._blender_profiles: list[BlenderProfile]   = []
-        self._form_dirty: bool                          = False
-        self.job_list_has_focus: bool                   = False
-        self._loading_job_into_form: bool               = False
-        self._sequential_queue: list[int]               = []
-        self._sequential_target_ids: set[int]           = set()
+        self.jobs: list[RenderJob] = []
+        self.threads: dict[int, RenderThread] = {}
+        self.signals: dict[int, WorkerSignals] = {}
+        self._selected_job_id: int | None = None
+        self._log_autoscroll: bool = True
+        self._blend_info_cache: dict = {}
+        self._blend_info_thread: BlendInfoThread | None = None
+        self._convert_thread: ConvertThread | None = None
+        self._blender_profiles: list[BlenderProfile] = []
+        self._form_dirty: bool = False
+        self.job_list_has_focus: bool = False
+        self._loading_job_into_form: bool = False
+        self._sequential_queue: list[int] = []
+        self._sequential_target_ids: set[int] = set()
+        self._sound_played_for_current_batch: bool = False
 
-        self._ipc_server: JuiceIPCServer | None           = None
-        self._ipc_queue: queue.Queue[dict]              = queue.Queue()
+        self._ipc_server: JuiceIPCServer | None = None
+        self._ipc_queue: queue.Queue[dict] = queue.Queue()
 
         self.setAcceptDrops(True)
 
@@ -449,26 +694,38 @@ class MainWindow(QMainWindow):
         queue_group = QGroupBox("Render Queue")
         queue_layout = QVBoxLayout(queue_group)
 
-        self.queue_tree = QTreeWidget()
+        self.queue_tree = DraggableQueueTree()
+        self.queue_tree.set_main_window(self)
         self.queue_tree.setAlternatingRowColors(True)
         self.queue_tree.setRootIsDecorated(False)
         self.queue_tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         headers = [
-            "#", "Blend File", "Scene", "Blender", "Samples", "Res %", "Sequence",
-            "Frames", "Output", "Status", "%", "Frame",
+            "#",
+            "Blend File",
+            "Scene",
+            "Camera",
+            "Blender",
+            "Samples",
+            "Res %",
+            "Sequence",
+            "Frames",
+            "Output",
+            "Status",
+            "%",
+            "Frame",
         ]
         self.queue_tree.setHeaderLabels(headers)
         self.queue_tree.setColumnWidth(0, 32)
         self.queue_tree.setColumnWidth(1, 140)
-        self.queue_tree.setColumnWidth(2, 72)
-        self.queue_tree.setColumnWidth(3, 100)
-        self.queue_tree.setColumnWidth(4, 52)
-        self.queue_tree.setColumnWidth(5, 68)
-        self.queue_tree.setColumnWidth(6, 88)
-        self.queue_tree.setColumnWidth(7, 72)
-        self.queue_tree.setColumnWidth(8, 120)
-        self.queue_tree.setColumnWidth(9, 72)
-        self.queue_tree.setColumnWidth(10, 36)
+        self.queue_tree.setColumnWidth(2, 95)
+        self.queue_tree.setColumnWidth(3, 70)
+        self.queue_tree.setColumnWidth(4, 80)
+        self.queue_tree.setColumnWidth(5, 32)
+        self.queue_tree.setColumnWidth(6, 32)
+        self.queue_tree.setColumnWidth(7, 100)
+        self.queue_tree.setColumnWidth(8, 60)
+        self.queue_tree.setColumnWidth(9, 115)
+        self.queue_tree.setColumnWidth(10, 50)
         self.queue_tree.setColumnWidth(11, 52)
         self.queue_tree.currentItemChanged.connect(self._on_job_select)
         queue_layout.addWidget(self.queue_tree)
@@ -477,7 +734,7 @@ class MainWindow(QMainWindow):
         btn_row_top = QHBoxLayout()
         btn_row_bottom = QHBoxLayout()
 
-        self._btn_start     = QPushButton("▶  Start Selected")
+        self._btn_start = QPushButton("▶  Start Selected")
         self._btn_start_all = QPushButton("▶▶  Start All Pending")
         self._btn_start_all.setObjectName("accent")
         self._simul_checkbox = QCheckBox("Render all jobs simultaneously")
@@ -487,19 +744,19 @@ class MainWindow(QMainWindow):
             "OFF: executes in sequential mode (one at a time)."
         )
 
-        self._btn_cancel    = QPushButton("⏹  Cancel")
-        self._btn_pause     = QPushButton("⏸  Pause")
-        self._btn_remove    = QPushButton("🗑  Remove")
+        self._btn_cancel = QPushButton("⏹  Cancel")
+        self._btn_pause = QPushButton("⏸  Pause")
+        self._btn_remove = QPushButton("🗑  Remove")
         self._btn_remove.setObjectName("danger")
-        self._btn_retry     = QPushButton("🔁  Retry")
+        self._btn_retry = QPushButton("🔁  Retry")
         self._btn_duplicate = QPushButton("📋  Duplicate")
-        self._btn_move_up   = QPushButton("↑")
+        self._btn_move_up = QPushButton("↑")
         self._btn_move_up.setFixedWidth(30)
         self._btn_move_down = QPushButton("↓")
         self._btn_move_down.setFixedWidth(30)
         self._btn_export_queue = QPushButton("📤  Export Render Queue")
         self._btn_import_queue = QPushButton("📥  Load Render Queue")
-        self._btn_save         = QPushButton("💾  Manual Save")
+        self._btn_save = QPushButton("💾  Manual Save")
         self._btn_save.setToolTip("Auto-save enabled - use only if needed.")
 
         self._btn_start.clicked.connect(self._start_selected)
@@ -524,8 +781,13 @@ class MainWindow(QMainWindow):
         btn_row_top.addWidget(self._btn_save)
 
         for btn in (
-            self._btn_cancel, self._btn_pause, self._btn_remove,
-            self._btn_retry, self._btn_duplicate, self._btn_move_up, self._btn_move_down
+            self._btn_cancel,
+            self._btn_pause,
+            self._btn_remove,
+            self._btn_retry,
+            self._btn_duplicate,
+            self._btn_move_up,
+            self._btn_move_down,
         ):
             btn_row_bottom.addWidget(btn)
         btn_row_bottom.addStretch()
@@ -560,6 +822,19 @@ class MainWindow(QMainWindow):
         scene_row.addStretch()
         form.addLayout(scene_row, 1, 1, 1, 2)
 
+        # Camera
+        form.addWidget(QLabel("Camera:"), 2, 0, Qt.AlignmentFlag.AlignRight)
+        camera_row = QHBoxLayout()
+        self.camera_combo = QComboBox()
+        self.camera_combo.setMinimumWidth(180)
+        self.camera_combo.setEnabled(False)
+        camera_row.addWidget(self.camera_combo)
+        self._camera_hint = QLabel("(select your scene first)")
+        self._camera_hint.setStyleSheet(f"color: {C['subtext']}; font-size: 8pt;")
+        camera_row.addWidget(self._camera_hint)
+        camera_row.addStretch()
+        form.addLayout(camera_row, 2, 1, 1, 2)
+
         # Frame range + samples
         range_row = QHBoxLayout()
         range_row.addWidget(QLabel("Start:"))
@@ -583,7 +858,7 @@ class MainWindow(QMainWindow):
         self._samples_hint = QLabel("")
         self._samples_hint.setStyleSheet(f"color: {C['mauve']}; font-size: 8pt;")
         range_row.addWidget(self._samples_hint)
-        
+
         range_row.addSpacing(8)
         range_row.addWidget(QLabel("Res %:"))
         self.resolution_edit = QLineEdit()
@@ -593,10 +868,10 @@ class MainWindow(QMainWindow):
         self._resolution_hint = QLabel("")
         self._resolution_hint.setStyleSheet(f"color: {C['mauve']}; font-size: 8pt;")
         range_row.addWidget(self._resolution_hint)
-        
+
         range_row.addStretch()
-        form.addWidget(QLabel("Frames:"), 2, 0, Qt.AlignmentFlag.AlignRight)
-        form.addLayout(range_row, 2, 1, 1, 2)
+        form.addWidget(QLabel("Frames:"), 3, 0, Qt.AlignmentFlag.AlignRight)
+        form.addLayout(range_row, 3, 1, 1, 2)
 
         # Use Nodes button
         self.use_nodes_btn = QPushButton("COMPOSITING NODES: OFF")
@@ -605,25 +880,27 @@ class MainWindow(QMainWindow):
         self.use_nodes_btn.setChecked(False)
         self.use_nodes_btn.clicked.connect(self._toggle_use_nodes)
         self.use_nodes_btn.setStyle(self.use_nodes_btn.style())
-        form.addWidget(self.use_nodes_btn, 3, 1)
+        form.addWidget(self.use_nodes_btn, 4, 1)
 
         # Output path + sequence toggle
-        form.addWidget(QLabel("Output Path:"), 4, 0, Qt.AlignmentFlag.AlignRight)
+        form.addWidget(QLabel("Output Path:"), 5, 0, Qt.AlignmentFlag.AlignRight)
         output_row = QHBoxLayout()
         self.output_edit = QLineEdit()
         output_row.addWidget(self.output_edit)
         btn_browse_out = QPushButton("Browse")
         btn_browse_out.clicked.connect(self._browse_output)
         output_row.addWidget(btn_browse_out)
-        form.addLayout(output_row, 4, 1, 1, 2)
+        form.addLayout(output_row, 5, 1, 1, 2)
 
-         # Sequence name
-        form.addWidget(QLabel("Sequence Name:"), 5, 0, Qt.AlignmentFlag.AlignRight)
+        # Sequence name
+        form.addWidget(QLabel("Sequence Name:"), 6, 0, Qt.AlignmentFlag.AlignRight)
         seq_row = QHBoxLayout()
         self.sequence_edit = QLineEdit()
-        self.sequence_edit.setPlaceholderText("e.g. shot_010_lighting  (used as output subfolder)")
+        self.sequence_edit.setPlaceholderText(
+            "e.g. shot_010_lighting  (used as output subfolder)"
+        )
         seq_row.addWidget(self.sequence_edit)
-        form.addLayout(seq_row, 5, 1, 1, 2)
+        form.addLayout(seq_row, 6, 1, 1, 2)
 
         # Add / Apply row
         add_apply_row = QHBoxLayout()
@@ -641,7 +918,7 @@ class MainWindow(QMainWindow):
         self._btn_apply_to_job.setEnabled(False)
         self._btn_apply_to_job.clicked.connect(self._apply_changes_to_selected_job)
         add_apply_row.addWidget(self._btn_apply_to_job, stretch=1)
-        form.addLayout(add_apply_row, 6, 0, 1, 3)
+        form.addLayout(add_apply_row, 7, 0, 1, 3)
 
         left_layout.addWidget(form_group, stretch=0)
 
@@ -669,12 +946,12 @@ class MainWindow(QMainWindow):
         self._prog_vars: dict[str, QLabel] = {}
         rows = [
             ("current_frame", "Current Frame:", C["peach"]),
-            ("elapsed",       "Elapsed:",       C["accent"]),
-            ("eta",           "ETA:",           C["green"]),
-            ("frame_time",    "Last Frame:",    C["mauve"]),
-            ("frames_done",   "Frames Done:",   C["text"]),
-            ("samples",       "Samples:",       C["yellow"]),
-            ("device",        "Render Device:", C["teal"]),
+            ("elapsed", "Elapsed:", C["accent"]),
+            ("eta", "ETA:", C["green"]),
+            ("frame_time", "Last Frame:", C["mauve"]),
+            ("frames_done", "Frames Done:", C["text"]),
+            ("samples", "Samples:", C["yellow"]),
+            ("device", "Render Device:", C["teal"]),
         ]
         for i, (key, lbl, color) in enumerate(rows, start=1):
             prog_grid.addWidget(QLabel(lbl), i, 0, Qt.AlignmentFlag.AlignRight)
@@ -704,7 +981,7 @@ class MainWindow(QMainWindow):
         self._btn_open_folder.clicked.connect(self._open_output_folder)
         right_layout.addWidget(self._btn_open_folder)
 
-         # Export / Convert
+        # Export / Convert
         export_group = QGroupBox("Export Video")
         export_layout = QVBoxLayout(export_group)
 
@@ -712,9 +989,9 @@ class MainWindow(QMainWindow):
         preview_row = QHBoxLayout()
         self._btn_preview = QPushButton("🎬  Preview")
         self._btn_preview.setToolTip(
-            "Genera un MP4 rápido con los frames renderizados hasta el momento.\n"
-            "Disponible mientras el job está en ejecución (Running).\n"
-            "Requiere FFmpeg instalado y disponible en el PATH del sistema."
+            "Generate a quick MP4 with the frames rendered so far.\n"
+            "Available while the job is running.\n"
+            "Requires FFmpeg installed and available in the system PATH."
         )
         self._btn_preview.setEnabled(False)
         self._btn_preview.clicked.connect(self._preview_video)
@@ -732,9 +1009,9 @@ class MainWindow(QMainWindow):
 
         self._btn_convert = QPushButton("🎬  Convert Video")
         self._btn_convert.setToolTip(
-            "Convierte la secuencia de PNGs del job seleccionado al formato elegido.\n"
-            "Requiere FFmpeg instalado y disponible en el PATH del sistema.\n"
-            "El FPS se toma automáticamente del archivo .blend."
+            "Convert the sequence of PNGs from the selected job to the chosen format.\n"
+            "Requires FFmpeg installed and available in the system PATH.\n"
+            "The FPS is automatically taken from the .blend file."
         )
         self._btn_convert.setEnabled(False)
         self._btn_convert.clicked.connect(self._convert_video)
@@ -789,7 +1066,7 @@ class MainWindow(QMainWindow):
 
         self.resolution_edit.textChanged.connect(self._on_form_field_changed)
         self._connect_form_dirty_tracking()
-        
+
         # Install keyboard shortcut tracking AFTER UI is built
         self._install_keyboard_focus_tracking()
 
@@ -925,7 +1202,9 @@ class MainWindow(QMainWindow):
                 return False
             for i, p in enumerate(edited):
                 if i != row and p.name == n:
-                    QMessageBox.warning(dlg, "Name", "A profile with that name already exists.")
+                    QMessageBox.warning(
+                        dlg, "Name", "A profile with that name already exists."
+                    )
                     return False
             edited[row].name = n
             edited[row].path = path_edit.text().strip() or DEFAULT_BLENDER
@@ -938,7 +1217,9 @@ class MainWindow(QMainWindow):
 
         def browse_dlg() -> None:
             path, _ = QFileDialog.getOpenFileName(
-                dlg, "Select Blender", "",
+                dlg,
+                "Select Blender",
+                "",
                 "Executable (*.exe);;All Files (*)",
             )
             if path:
@@ -959,7 +1240,9 @@ class MainWindow(QMainWindow):
         def remove_profile() -> None:
             if len(edited) <= 1:
                 QMessageBox.information(
-                    dlg, "Info", "There must be at least one Blender profile.",
+                    dlg,
+                    "Info",
+                    "There must be at least one Blender profile.",
                 )
                 return
             row = list_w.currentRow()
@@ -989,7 +1272,9 @@ class MainWindow(QMainWindow):
                 return
             names = [p.name for p in edited]
             if len(names) != len(set(names)):
-                QMessageBox.warning(dlg, "Validation", "There are duplicate profile names.")
+                QMessageBox.warning(
+                    dlg, "Validation", "There are duplicate profile names."
+                )
                 return
             self._blender_profiles = edited
             self._populate_profile_combo()
@@ -1062,7 +1347,12 @@ class MainWindow(QMainWindow):
             self._prepare_form_for_new_blend(path)
 
     def _browse_output(self):
-        path = QFileDialog.getExistingDirectory(self, "Select Output Directory")
+        initial_dir = self.output_edit.text().strip()
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Output Directory",
+            directory=initial_dir if initial_dir else "",
+        )
         if path:
             self.output_edit.setText(path)
 
@@ -1081,6 +1371,14 @@ class MainWindow(QMainWindow):
             self.scene_combo.clear()
             self.scene_combo.blockSignals(False)
 
+            self.camera_combo.blockSignals(True)
+            self.camera_combo.clear()
+            self.camera_combo.addItem("(seleccionar scene primero)")
+            self.camera_combo.setEnabled(False)
+            self._camera_hint.setText("(seleccionar scene primero)")
+            self._camera_hint.setStyleSheet(f"color: {C['subtext']}; font-size: 8pt;")
+            self.camera_combo.blockSignals(False)
+
             self.sequence_edit.clear()
             self.output_edit.clear()
             self.frame_start_spin.setValue(1)
@@ -1098,7 +1396,9 @@ class MainWindow(QMainWindow):
     def _load_blend_info_async(self):
         blend = self.blend_edit.text().strip()
         if not blend or not os.path.isfile(blend):
-            QMessageBox.warning(self, "Warning", "Please select a valid .blend file first.")
+            QMessageBox.warning(
+                self, "Warning", "Please select a valid .blend file first."
+            )
             return
         key = f"{blend}\n{self.blender_exec}"
         if key in self._blend_info_cache:
@@ -1131,8 +1431,9 @@ class MainWindow(QMainWindow):
     def _apply_blend_info(self, info: dict, select_scene: str | None = None):
         scenes = info.get("scenes", ["Scene"])
         self._current_samples_map = info.get("samples", {})
-        self._current_fps_map     = info.get("fps", {})
+        self._current_fps_map = info.get("fps", {})
         self._current_resolution_map = info.get("resolution_pct", {})
+        self._current_cameras_map = info.get("cameras", {})
         self.scene_combo.setEnabled(True)
         self.scene_combo.blockSignals(True)
         self.scene_combo.clear()
@@ -1150,6 +1451,15 @@ class MainWindow(QMainWindow):
         self.scene_combo.blockSignals(False)
         if scenes:
             self._update_samples_hint(self.scene_combo.currentText())
+            self._update_cameras_combo(self.scene_combo.currentText())
+            pending_cam = getattr(self, "_pending_camera_to_select", None)
+            if pending_cam:
+                self.camera_combo.blockSignals(True)
+                idx = self.camera_combo.findText(pending_cam)
+                if idx >= 0:
+                    self.camera_combo.setCurrentIndex(idx)
+                self.camera_combo.blockSignals(False)
+                self._pending_camera_to_select = None
         self.status_bar.showMessage(f"Found {len(scenes)} scene(s).")
 
     def _load_blend_info_for_job_edit(self, job: RenderJob) -> None:
@@ -1164,9 +1474,13 @@ class MainWindow(QMainWindow):
             self.scene_combo.setCurrentIndex(0)
             self.scene_combo.blockSignals(False)
             self._current_samples_map = {}
-            self._current_fps_map     = {}
+            self._current_fps_map = {}
+            self._current_cameras_map = {}
             self._update_samples_hint(self.scene_combo.currentText())
-            self.status_bar.showMessage(".blend file not found; scene shown without metadata.")
+            self._update_cameras_combo(self.scene_combo.currentText())
+            self.status_bar.showMessage(
+                ".blend file not found; scene shown without metadata."
+            )
             return
 
         bexec = resolve_blender_exec(job, self._blender_profiles)
@@ -1182,8 +1496,8 @@ class MainWindow(QMainWindow):
         snap_scene = scene
         snap_jid = job.job_id
         self._blend_info_thread.finished.connect(
-            lambda info, k=key, sc=snap_scene, jid=snap_jid: self._on_blend_info_ready_for_form(
-                info, k, sc, jid
+            lambda info, k=key, sc=snap_scene, jid=snap_jid: (
+                self._on_blend_info_ready_for_form(info, k, sc, jid)
             )
         )
         self._blend_info_thread.finished.connect(self._blend_info_thread.deleteLater)
@@ -1192,6 +1506,25 @@ class MainWindow(QMainWindow):
     def _on_scene_changed(self, scene_name: str):
         self._update_samples_hint(scene_name)
         self._update_resolution_hint(scene_name)
+        self._update_cameras_combo(scene_name)
+
+    def _update_cameras_combo(self, scene_name: str):
+        cm = getattr(self, "_current_cameras_map", {})
+        cams = cm.get(scene_name, [])
+        self.camera_combo.blockSignals(True)
+        self.camera_combo.clear()
+        if cams:
+            self.camera_combo.addItem("")  # Empty = scene default
+            self.camera_combo.addItems(cams)
+            self.camera_combo.setEnabled(True)
+            self._camera_hint.setText(f"({len(cams)} camera(s))")
+            self._camera_hint.setStyleSheet(f"color: {C['green']}; font-size: 8pt;")
+        else:
+            self.camera_combo.addItem("(ninguna)")
+            self.camera_combo.setEnabled(False)
+            self._camera_hint.setText("(sin cámaras)")
+            self._camera_hint.setStyleSheet(f"color: {C['red']}; font-size: 8pt;")
+        self.camera_combo.blockSignals(False)
 
     def _update_samples_hint(self, scene_name: str):
         sm = getattr(self, "_current_samples_map", {})
@@ -1199,7 +1532,7 @@ class MainWindow(QMainWindow):
             self._samples_hint.setText(f"(scene: {sm[scene_name]})")
         else:
             self._samples_hint.setText("")
-        
+
     def _update_resolution_hint(self, scene_name: str):
         rm = getattr(self, "_current_resolution_map", {})
         if scene_name in rm:
@@ -1237,6 +1570,7 @@ class MainWindow(QMainWindow):
     def _load_job_into_form(self, job: RenderJob) -> None:
         """Fill the add-job form from a queued job (selection changed)."""
         self._loading_job_into_form = True
+        self._pending_camera_to_select = job.camera
         try:
             self.blend_edit.setText(job.blend_file)
             self._sync_blender_ui_from_job(job)
@@ -1301,11 +1635,15 @@ class MainWindow(QMainWindow):
                 if not 0 <= resolution_pct <= 100:
                     raise ValueError
             except ValueError:
-                return None, "Resolution % must be 0-100 (or leave empty for scene default)."
+                return (
+                    None,
+                    "Resolution % must be 0-100 (or leave empty for scene default).",
+                )
 
         return {
             "blend_file": blend,
             "scene": scene,
+            "camera": self.camera_combo.currentText() or None,
             "sequence_name": seq,
             "output_path": output,
             "frame_start": fs,
@@ -1331,7 +1669,9 @@ class MainWindow(QMainWindow):
             return {"ok": True, "queued": True}
 
         try:
-            self._ipc_server = JuiceIPCServer(host="127.0.0.1", port=8765, on_message=_on_message)
+            self._ipc_server = JuiceIPCServer(
+                host="127.0.0.1", port=8765, on_message=_on_message
+            )
             self._ipc_server.start()
             self.status_bar.showMessage("IPC listener activo en 127.0.0.1:8765", 2500)
         except Exception as e:
@@ -1384,6 +1724,7 @@ class MainWindow(QMainWindow):
 
         use_nodes = bool(payload.get("use_nodes", False))
         seq_name = str(payload.get("sequence_name", "")).strip()
+        camera = str(payload.get("camera", "")).strip() or None
 
         bpath, bprof = self._new_job_blender_fields()
         if not bpath or not os.path.isfile(bpath):
@@ -1397,6 +1738,7 @@ class MainWindow(QMainWindow):
         return {
             "blend_file": blend,
             "scene": scene,
+            "camera": camera,
             "sequence_name": seq_name,
             "output_path": out_base,
             "frame_start": fs,
@@ -1413,12 +1755,14 @@ class MainWindow(QMainWindow):
             if (
                 os.path.normcase(j.blend_file) == os.path.normcase(d["blend_file"])
                 and j.scene == d["scene"]
+                and j.camera == d.get("camera")
                 and j.frame_start == d["frame_start"]
                 and j.frame_end == d["frame_end"]
                 and j.samples_override == d["samples_override"]
                 and j.resolution_pct == d["resolution_pct"]
                 and j.use_nodes == d["use_nodes"]
-                and os.path.normcase(j.output_path) == os.path.normcase(d["output_path"])
+                and os.path.normcase(j.output_path)
+                == os.path.normcase(d["output_path"])
             ):
                 return True
         return False
@@ -1436,6 +1780,7 @@ class MainWindow(QMainWindow):
         job = RenderJob(
             blend_file=data["blend_file"],
             scene=data["scene"],
+            camera=data.get("camera"),
             sequence_name=data["sequence_name"],
             frame_start=data["frame_start"],
             frame_end=data["frame_end"],
@@ -1462,6 +1807,7 @@ class MainWindow(QMainWindow):
         self.blender_path_edit.textChanged.connect(self._on_form_field_changed)
         self.profile_combo.currentTextChanged.connect(self._on_form_field_changed)
         self.scene_combo.currentTextChanged.connect(self._on_form_field_changed)
+        self.camera_combo.currentTextChanged.connect(self._on_form_field_changed)
         self.sequence_edit.textChanged.connect(self._on_form_field_changed)
         self.output_edit.textChanged.connect(self._on_form_field_changed)
         self.frame_start_spin.valueChanged.connect(self._on_form_field_changed)
@@ -1504,6 +1850,7 @@ class MainWindow(QMainWindow):
         job = RenderJob(
             blend_file=data["blend_file"],
             scene=data["scene"],
+            camera=data.get("camera"),
             sequence_name=data["sequence_name"],
             frame_start=data["frame_start"],
             frame_end=data["frame_end"],
@@ -1518,8 +1865,10 @@ class MainWindow(QMainWindow):
         self._refresh_tree()
         self._auto_save_queue()
         so = data["samples_override"]
+        cam = data.get("camera")
         self.status_bar.showMessage(
             f"Job #{job.job_id} added — "
+            f"Camera: {cam or 'scene default'} | "
             f"Nodes: {'ON' if job.use_nodes else 'OFF'} | "
             f"Samples: {so or 'scene default'}"
         )
@@ -1531,7 +1880,8 @@ class MainWindow(QMainWindow):
             return
         if job.status == RenderJob.STATUS_RUNNING:
             QMessageBox.warning(
-                self, "No editable",
+                self,
+                "No editable",
                 "This job is running. Cancel it before editing its settings.",
             )
             return
@@ -1546,17 +1896,18 @@ class MainWindow(QMainWindow):
         if not data:
             return
 
-        job.blend_file      = data["blend_file"]
-        job.scene           = data["scene"]
-        job.sequence_name   = data["sequence_name"]
-        job.frame_start     = data["frame_start"]
-        job.frame_end       = data["frame_end"]
-        job.output_path     = data["output_path"]
-        job.blender_exec    = data["blender_exec"]
+        job.blend_file = data["blend_file"]
+        job.scene = data["scene"]
+        job.camera = data.get("camera")
+        job.sequence_name = data["sequence_name"]
+        job.frame_start = data["frame_start"]
+        job.frame_end = data["frame_end"]
+        job.output_path = data["output_path"]
+        job.blender_exec = data["blender_exec"]
         job.blender_profile = data["blender_profile"]
-        job.use_nodes       = data["use_nodes"]
+        job.use_nodes = data["use_nodes"]
         job.samples_override = data["samples_override"]
-        job.resolution_pct  = data.get("resolution_pct")
+        job.resolution_pct = data.get("resolution_pct")
 
         self._refresh_tree()
         self._auto_save_queue()
@@ -1578,13 +1929,15 @@ class MainWindow(QMainWindow):
             new_job = self._selected_job()
             if new_job and new_job.job_id == old_selected_id:
                 self._selected_job_id = old_selected_id
-                self._btn_apply_to_job.setEnabled(new_job.status != RenderJob.STATUS_RUNNING)
+                self._btn_apply_to_job.setEnabled(
+                    new_job.status != RenderJob.STATUS_RUNNING
+                )
                 self._load_job_into_form(new_job)
                 self._update_progress_ui(new_job)
                 self._load_preview(new_job.effective_output_path)
                 self._update_export_ui(new_job)
                 self._update_folder_btn(new_job)
-                
+
                 # Refresh log
                 self.log_edit.clear()
                 for line in new_job.log_lines:
@@ -1601,7 +1954,9 @@ class MainWindow(QMainWindow):
             self.queue_tree.blockSignals(False)
             self._set_form_dirty(False)
 
-        self.status_bar.showMessage(f"Job #{old_selected_id} updated and selection preserved ✓")
+        self.status_bar.showMessage(
+            f"Job #{old_selected_id} updated and selection preserved ✓"
+        )
 
     # ------------------------------------------------------------------ Remove
 
@@ -1613,9 +1968,10 @@ class MainWindow(QMainWindow):
         running = [j for j in jobs if j.status == RenderJob.STATUS_RUNNING]
         if running:
             QMessageBox.warning(
-                self, "Warning",
+                self,
+                "Warning",
                 "Hay jobs en ejecución dentro de la selección.\n"
-                "Cancelalos antes de eliminarlos."
+                "Cancelalos antes de eliminarlos.",
             )
             return
 
@@ -1634,7 +1990,8 @@ class MainWindow(QMainWindow):
             )
 
         answer = QMessageBox.question(
-            self, "Confirmar eliminación",
+            self,
+            "Confirmar eliminación",
             msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -1662,8 +2019,7 @@ class MainWindow(QMainWindow):
         pending_jobs = [j for j in selected if j.status == RenderJob.STATUS_PENDING]
         if not pending_jobs:
             QMessageBox.information(
-                self, "Info",
-                "Ningún job seleccionado está en estado Pending."
+                self, "Info", "Ningún job seleccionado está en estado Pending."
             )
             return
 
@@ -1671,8 +2027,10 @@ class MainWindow(QMainWindow):
         # when all selected jobs complete (Done/Error/Cancelled), even if other
         # queue jobs remain Pending.
         self._sequential_target_ids = {j.job_id for j in pending_jobs}
+        self._sound_played_for_current_batch = False
 
         if self._simul_checkbox.isChecked():
+            self._sound_played_for_current_batch = False
             for job in pending_jobs:
                 self._start_job(job)
             return
@@ -1686,6 +2044,7 @@ class MainWindow(QMainWindow):
             return
 
         if self._simul_checkbox.isChecked():
+            self._sound_played_for_current_batch = False
             for job in pending_jobs:
                 self._start_job(job)
             return
@@ -1722,7 +2081,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Info",
-                "Ya hay un job en ejecución. Se encolaron los seleccionados para correr al terminar."
+                "Ya hay un job en ejecución. Se encolaron los seleccionados para correr al terminar.",
             )
 
         existing = set(self._sequential_queue)
@@ -1739,11 +2098,11 @@ class MainWindow(QMainWindow):
 
         if added == 0:
             QMessageBox.information(
-                self, "Info",
-                "No hay jobs Pending nuevos para encolar."
+                self, "Info", "No hay jobs Pending nuevos para encolar."
             )
             return
 
+        self._sound_played_for_current_batch = False
         self.status_bar.showMessage(f"Encolados {added} job(s) en modo secuencial.")
         self._start_next_queued_job()
 
@@ -1768,7 +2127,9 @@ class MainWindow(QMainWindow):
 
         running = [j for j in jobs if j.status == RenderJob.STATUS_RUNNING]
         if not running:
-            QMessageBox.information(self, "Info", "No hay jobs seleccionados en estado Running.")
+            QMessageBox.information(
+                self, "Info", "No hay jobs seleccionados en estado Running."
+            )
             return
 
         selected_ids, current_id = self._selection_snapshot()
@@ -1835,17 +2196,29 @@ class MainWindow(QMainWindow):
         if self._sequential_target_ids:
             targets = [j for j in self.jobs if j.job_id in self._sequential_target_ids]
             selected_active = [
-                j for j in targets
+                j
+                for j in targets
                 if j.status in (RenderJob.STATUS_RUNNING, RenderJob.STATUS_PENDING)
             ]
             if not selected_active:
-                self.status_bar.showMessage("🎉 Jobs seleccionados finalizados — reproduciendo sonido…")
+                self.status_bar.showMessage(
+                    "🎉 Jobs seleccionados finalizados — reproduciendo sonido…"
+                )
                 self._play_queue_done_sound()
+                self._sound_played_for_current_batch = True
                 self._sequential_target_ids.clear()
+                return
 
         # Existing behavior: when entire queue is finished, also play sound.
-        active = [j for j in self.jobs
-                  if j.status in (RenderJob.STATUS_RUNNING, RenderJob.STATUS_PENDING)]
+        # Skip if sound was already played for selected batch.
+        if self._sound_played_for_current_batch:
+            self._sound_played_for_current_batch = False
+            return
+        active = [
+            j
+            for j in self.jobs
+            if j.status in (RenderJob.STATUS_RUNNING, RenderJob.STATUS_PENDING)
+        ]
         if not active and not self._sequential_queue:
             self.status_bar.showMessage("🎉 Cola completa — reproduciendo sonido…")
             self._play_queue_done_sound()
@@ -1882,66 +2255,104 @@ class MainWindow(QMainWindow):
 
         return selected_ids, current_id
 
-    def _refresh_tree(self, selected_ids: set[int] | None = None, current_id: int | None = None):
+    def _refresh_tree(
+        self, selected_ids: set[int] | None = None, current_id: int | None = None
+    ):
         self.queue_tree.setUpdatesEnabled(False)
         self.queue_tree.blockSignals(True)
+
         self.queue_tree.clear()
 
         id_to_item: dict[int, QTreeWidgetItem] = {}
 
         for job in self.jobs:
-            blend_short  = os.path.basename(job.blend_file)
-            out_short    = ("…" + job.output_path[-17:]) if len(job.output_path) > 20 else job.output_path
-            frame_str    = str(job.current_frame) if job.current_frame is not None else "—"
-            samples_str  = str(job.samples_override) if job.samples_override else "def"
-            res_str      = f"{job.resolution_pct:.0f}" if job.resolution_pct is not None else "def"
-            blender_str  = self._job_blender_display(job)
-            item = QTreeWidgetItem([
-                str(job.job_id),
-                blend_short,
-                job.scene,
-                blender_str,
-                samples_str,
-                res_str,
-                job.sequence_name or "—",
-                f"{job.frame_start}–{job.frame_end}",
-                out_short,
-                job.status,
-                f"{job.progress}%",
-                frame_str,
-            ])
+            blend_short = os.path.basename(job.blend_file)
+            out_short = (
+                ("…" + job.output_path[-17:])
+                if len(job.output_path) > 20
+                else job.output_path
+            )
+            frame_str = str(job.current_frame) if job.current_frame is not None else "—"
+            samples_str = str(job.samples_override) if job.samples_override else "def"
+            res_str = (
+                f"{job.resolution_pct:.0f}" if job.resolution_pct is not None else "def"
+            )
+            blender_str = self._job_blender_display(job)
+            camera_str = job.camera or "—"
+            item = QTreeWidgetItem(
+                [
+                    str(job.job_id),
+                    blend_short,
+                    job.scene,
+                    camera_str,
+                    blender_str,
+                    samples_str,
+                    res_str,
+                    job.sequence_name or "—",
+                    f"{job.frame_start}–{job.frame_end}",
+                    out_short,
+                    job.status,
+                    f"{job.progress}%",
+                    frame_str,
+                ]
+            )
             id_to_item[job.job_id] = item
             item.setToolTip(1, job.blend_file)
-            item.setToolTip(8, job.effective_output_path)
+            item.setToolTip(3, job.camera or "scene default")
+            item.setToolTip(9, job.effective_output_path)
             color = QColor(STATUS_COLOR.get(job.status, C["text"]))
-            item.setForeground(9, color)
+            item.setForeground(10, color)
             self.queue_tree.addTopLevelItem(item)
 
-            combo = QComboBox(self.queue_tree)
+            combo = QComboBox(self.queue_tree.viewport())
+            combo.setFixedHeight(24)
+            combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             for p in self._blender_profiles:
                 combo.addItem(p.name)
             combo.addItem(CUSTOM_PROFILE_LABEL)
 
-            current = job.blender_profile if job.blender_profile else CUSTOM_PROFILE_LABEL
+            current = (
+                job.blender_profile if job.blender_profile else CUSTOM_PROFILE_LABEL
+            )
             idx = combo.findText(current)
             combo.setCurrentIndex(idx if idx >= 0 else 0)
             combo.currentTextChanged.connect(
                 lambda text, jid=job.job_id: self._on_table_blender_changed(jid, text)
             )
-            self.queue_tree.setItemWidget(item, 3, combo)
+            self.queue_tree.setItemWidget(item, 4, combo)
+
+            item.setSizeHint(0, QSize(0, 28))
 
         restore_ids = selected_ids if selected_ids is not None else set()
-        restore_current = current_id if current_id is not None else self._selected_job_id
+        restore_current = (
+            current_id if current_id is not None else self._selected_job_id
+        )
 
         for jid in restore_ids:
             it = id_to_item.get(jid)
             if it:
                 it.setSelected(True)
 
-        current_item = id_to_item.get(restore_current) if restore_current is not None else None
+        current_item = (
+            id_to_item.get(restore_current) if restore_current is not None else None
+        )
         if current_item is None and restore_ids:
             first_id = next(iter(restore_ids))
             current_item = id_to_item.get(first_id)
+
+        if current_item is not None:
+            self.queue_tree.setCurrentItem(current_item)
+            try:
+                self._selected_job_id = int(current_item.text(0))
+            except (ValueError, RuntimeError):
+                pass
+        else:
+            self._selected_job_id = None
+
+        self.queue_tree.blockSignals(False)
+        self.queue_tree.setUpdatesEnabled(True)
+
+        self._update_simultaneous_checkbox_enabled()
 
         if current_item is not None:
             self.queue_tree.setCurrentItem(current_item)
@@ -1967,12 +2378,13 @@ class MainWindow(QMainWindow):
         for i in range(self.queue_tree.topLevelItemCount()):
             item = self.queue_tree.topLevelItem(i)
             if item and int(item.text(0)) == job.job_id:
-                item.setText(9, job.status)
-                item.setText(10, f"{job.progress}%")
-                item.setText(11, frame_str)
+                item.setText(10, job.status)
+                item.setText(11, f"{job.progress}%")
+                item.setText(12, frame_str)
                 item.setToolTip(1, job.blend_file)
-                item.setToolTip(8, job.effective_output_path)
-                item.setForeground(9, QColor(STATUS_COLOR.get(job.status, C["text"])))
+                item.setToolTip(3, job.camera or "scene default")
+                item.setToolTip(9, job.effective_output_path)
+                item.setForeground(10, QColor(STATUS_COLOR.get(job.status, C["text"])))
                 return
 
     def _on_table_blender_changed(self, job_id: int, profile_name: str):
@@ -1984,7 +2396,9 @@ class MainWindow(QMainWindow):
             job.blender_profile = ""
             # conserva job.blender_exec actual en modo custom
         else:
-            match = next((p for p in self._blender_profiles if p.name == profile_name), None)
+            match = next(
+                (p for p in self._blender_profiles if p.name == profile_name), None
+            )
             if not match:
                 return
             job.blender_profile = match.name
@@ -2173,7 +2587,10 @@ class MainWindow(QMainWindow):
             return
         extensions = (".png", ".jpg", ".jpeg", ".tiff", ".tga", ".bmp")
         candidates = [
-            (os.path.getmtime(os.path.join(output_path, f)), os.path.join(output_path, f))
+            (
+                os.path.getmtime(os.path.join(output_path, f)),
+                os.path.join(output_path, f),
+            )
             for f in os.listdir(output_path)
             if f.lower().endswith(extensions)
         ]
@@ -2187,13 +2604,15 @@ class MainWindow(QMainWindow):
                 # Try via Pillow for EXR etc.
                 from PIL import Image
                 import io
+
                 img = Image.open(img_path).convert("RGB")
                 buf = io.BytesIO()
                 img.save(buf, format="PNG")
                 buf.seek(0)
                 pixmap.loadFromData(buf.read())
             scaled = pixmap.scaled(
-                380, 200,
+                380,
+                200,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -2246,7 +2665,10 @@ class MainWindow(QMainWindow):
         try:
             PROCESS_ALL_ACCESS = 0x1F0FFF
             for job in jobs:
-                if job.status not in (RenderJob.STATUS_RUNNING, RenderJob.STATUS_PAUSED):
+                if job.status not in (
+                    RenderJob.STATUS_RUNNING,
+                    RenderJob.STATUS_PAUSED,
+                ):
                     continue
                 if not job.process or job.process.pid is None:
                     continue
@@ -2277,8 +2699,7 @@ class MainWindow(QMainWindow):
 
             if paused_count == 0 and resumed_count == 0:
                 QMessageBox.information(
-                    self, "Info",
-                    "No hay jobs Running/Paused válidos en la selección."
+                    self, "Info", "No hay jobs Running/Paused válidos en la selección."
                 )
                 return
 
@@ -2316,26 +2737,28 @@ class MainWindow(QMainWindow):
             return
 
         invalid = [
-            j for j in jobs
+            j
+            for j in jobs
             if j.status not in (RenderJob.STATUS_ERROR, RenderJob.STATUS_CANCELLED)
         ]
         if invalid:
             QMessageBox.information(
-                self, "Info",
+                self,
+                "Info",
                 "Solo se pueden reintentar jobs en estado Error o Cancelado.\n"
-                "La selección incluye jobs no válidos."
+                "La selección incluye jobs no válidos.",
             )
             return
 
         for job in jobs:
-            job.status           = RenderJob.STATUS_PENDING
-            job.progress         = 0
-            job.current_frame    = None
-            job.log_lines        = []
-            job.elapsed_seconds  = 0.0
-            job.eta_seconds      = None
+            job.status = RenderJob.STATUS_PENDING
+            job.progress = 0
+            job.current_frame = None
+            job.log_lines = []
+            job.elapsed_seconds = 0.0
+            job.eta_seconds = None
             job.last_frame_elapsed = None
-            job._is_paused       = False
+            job._is_paused = False
             job._detected_device = None
 
         self._refresh_tree()
@@ -2362,6 +2785,7 @@ class MainWindow(QMainWindow):
             new_job = RenderJob(
                 blend_file=job.blend_file,
                 scene=job.scene,
+                camera=job.camera,
                 sequence_name=job.sequence_name,
                 frame_start=job.frame_start,
                 frame_end=job.frame_end,
@@ -2381,12 +2805,20 @@ class MainWindow(QMainWindow):
     def _install_keyboard_focus_tracking(self):
         """Install event filters on form widgets to track focus context."""
         from PyQt6.QtCore import QEvent
+
         widgets_to_track = [
-            self.blend_edit, self.scene_combo, self.sequence_edit,
-            self.output_edit, self.samples_edit, self.resolution_edit,
-            self.frame_start_spin, self.frame_end_spin,
-            self.blender_path_edit, self.profile_combo,
-            self.use_nodes_btn
+            self.blend_edit,
+            self.scene_combo,
+            self.camera_combo,
+            self.sequence_edit,
+            self.output_edit,
+            self.samples_edit,
+            self.resolution_edit,
+            self.frame_start_spin,
+            self.frame_end_spin,
+            self.blender_path_edit,
+            self.profile_combo,
+            self.use_nodes_btn,
         ]
         for widget in widgets_to_track:
             widget.installEventFilter(self)
@@ -2397,13 +2829,13 @@ class MainWindow(QMainWindow):
     def _update_focus_context(self, widget) -> None:
         """Update job_list_has_focus based on current widget focus."""
         self.job_list_has_focus = (
-            isinstance(widget, QTreeWidget) and 
-            widget == self.queue_tree
+            isinstance(widget, QTreeWidget) and widget == self.queue_tree
         )
 
     def eventFilter(self, a0, a1):
         """Override eventFilter for focus tracking."""
         from PyQt6.QtCore import QEvent
+
         if a1 is not None:
             etype = a1.type()
             if etype == QEvent.Type.FocusIn and a0 is not None:
@@ -2424,13 +2856,13 @@ class MainWindow(QMainWindow):
     def keyPressEvent(self, a0):
         """
         Keyboard shortcuts basados en focus context:
-        
+
         JOB LIST (queue_tree focus):
         • Enter: Start Selected o Start All Pending
-        • Delete: Remove selected  
+        • Delete: Remove selected
         • Escape: Cancel selected
         • F5: Retry selected (Error/Cancelled)
-        
+
         FORM focus:
         • Enter: Add Job o Apply changes
         """
@@ -2500,7 +2932,7 @@ class MainWindow(QMainWindow):
 
     def _append_log_line(self, line: str):
         """Append a single colored line to the log QTextEdit."""
-        color   = self._log_line_color(line)
+        color = self._log_line_color(line)
         escaped = _html.escape(line)
         self.log_edit.append(f'<span style="color:{color};">{escaped}</span>')
         if self._log_autoscroll:
@@ -2531,7 +2963,7 @@ class MainWindow(QMainWindow):
                         ws.PlaySound(wav, ws.SND_FILENAME)
                 else:
                     # Fallback: generate tones
-                    ws.Beep(800,  200)
+                    ws.Beep(800, 200)
                     time.sleep(0.08)
                     ws.Beep(1000, 200)
                     time.sleep(0.08)
@@ -2571,7 +3003,7 @@ class MainWindow(QMainWindow):
     def _update_export_ui(self, job: RenderJob):
         """Enable/disable export controls based on job status."""
         is_running = job.status == RenderJob.STATUS_RUNNING
-        is_done    = job.status == RenderJob.STATUS_DONE
+        is_done = job.status == RenderJob.STATUS_DONE
 
         # Preview: only while Running
         self._btn_preview.setEnabled(is_running)
@@ -2597,12 +3029,13 @@ class MainWindow(QMainWindow):
         job = self._selected_job()
         if not job or job.status != RenderJob.STATUS_RUNNING:
             QMessageBox.information(
-                self, "Info",
+                self,
+                "Info",
                 "Preview solo está disponible para jobs en ejecución (Running).",
             )
             return
 
-        fps         = self._get_fps_for_job(job)
+        fps = self._get_fps_for_job(job)
         file_prefix = job.sequence_name if job.sequence_name else "frame"
         output_file = os.path.join(job.output_path, f"{file_prefix}_preview.mp4")
 
@@ -2633,18 +3066,21 @@ class MainWindow(QMainWindow):
         preset_name = self._preset_combo.currentText()
         preset = preset_by_name(preset_name)
         if not preset:
-            QMessageBox.critical(self, "Error", f"Preset no encontrado: {preset_name}")
+            QMessageBox.critical(self, "Error", f"Preset not found: {preset_name}")
             return
 
-        fps         = self._get_fps_for_job(job)
+        fps = self._get_fps_for_job(job)
         file_prefix = job.sequence_name if job.sequence_name else "frame"
-        output_file = os.path.join(job.output_path, f"{file_prefix}{preset['extension']}")
+        output_file = os.path.join(
+            job.output_path, f"{file_prefix}{preset['extension']}"
+        )
 
         # Warn if output file already exists
         if os.path.isfile(output_file):
             answer = QMessageBox.question(
-                self, "Archivo existente",
-                f"Ya existe:\n{output_file}\n\n¿Sobreescribir?",
+                self,
+                "File already exists",
+                f"It already exists:\n{output_file}\n\n¿Overwrite?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if answer != QMessageBox.StandardButton.Yes:
@@ -2652,9 +3088,9 @@ class MainWindow(QMainWindow):
 
         self._btn_convert.setEnabled(False)
         self._preset_combo.setEnabled(False)
-        self._fps_label.setText(f"FPS: {fps:g}  ⏳ convirtiendo ({preset_name})…")
+        self._fps_label.setText(f"FPS: {fps:g}  ⏳ converting ({preset_name})…")
         self.status_bar.showMessage(
-            f"Convirtiendo a {preset_name} a {fps:g} fps — {output_file}"
+            f"Converting to {preset_name} at {fps:g} fps — {output_file}"
         )
 
         self._convert_thread = ConvertThread(
@@ -2681,11 +3117,10 @@ class MainWindow(QMainWindow):
 
         if success:
             self.status_bar.showMessage(message)
-            QMessageBox.information(self, "Conversión completada", message)
+            QMessageBox.information(self, "Conversion completed", message)
         else:
-            self.status_bar.showMessage("Conversión fallida.")
-            QMessageBox.critical(self, "Error de conversión", message)
-
+            self.status_bar.showMessage("Conversion failed.")
+            QMessageBox.critical(self, "Conversion error", message)
 
     # ------------------------------------------------------------------ Persistence
 
@@ -2717,7 +3152,9 @@ class MainWindow(QMainWindow):
                 f"Exported {len(self.jobs)} job(s) to: {file_path}", 5000
             )
         except Exception as e:
-            QMessageBox.critical(self, "Export Error", f"No se pudo exportar la cola:\n{e}")
+            QMessageBox.critical(
+                self, "Export Error", f"Could not export the queue:\n{e}"
+            )
 
     def _import_render_queue(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -2734,15 +3171,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Import blocked",
-                "Hay jobs en ejecución. Cancelalos antes de importar una cola.",
+                "There are jobs running. Cancel them before importing a queue.",
             )
             return
 
         answer = QMessageBox.question(
             self,
-            "Reemplazar cola actual",
-            "Esta acción reemplazará la cola actual por la del archivo seleccionado.\n"
-            "¿Deseas continuar?",
+            "Replace current queue",
+            "This action will replace the current queue with the one from the selected file.\n"
+            "Do you want to continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -2760,7 +3197,9 @@ class MainWindow(QMainWindow):
                 raw_jobs = data.get("jobs")
 
             if raw_jobs is None:
-                raise ValueError("Formato inválido: se esperaba una lista o un objeto con clave 'jobs'.")
+                raise ValueError(
+                    "Invalid format: expected a list or object with 'jobs' key."
+                )
 
             imported_jobs: list[RenderJob] = []
             for entry in raw_jobs:
@@ -2788,7 +3227,9 @@ class MainWindow(QMainWindow):
                 f"Loaded {len(self.jobs)} job(s) from: {file_path}", 5000
             )
         except Exception as e:
-            QMessageBox.critical(self, "Import Error", f"No se pudo importar la cola:\n{e}")
+            QMessageBox.critical(
+                self, "Import Error", f"Could not import the queue:\n{e}"
+            )
 
     def _auto_save_queue(self):
         """Auto-save the queue after mutations (add/delete/finish)."""
@@ -2813,10 +3254,7 @@ class MainWindow(QMainWindow):
             a0.ignore()
             return
         if md.hasUrls():
-            if any(
-                u.toLocalFile().lower().endswith(".blend")
-                for u in md.urls()
-            ):
+            if any(u.toLocalFile().lower().endswith(".blend") for u in md.urls()):
                 a0.acceptProposedAction()
                 return
         a0.ignore()
@@ -2835,7 +3273,7 @@ class MainWindow(QMainWindow):
         ]
         if blend_files:
             self._prepare_form_for_new_blend(blend_files[0])
-            self.status_bar.showMessage(f"Archivo cargado: {blend_files[0]}")
+            self.status_bar.showMessage(f"File loaded: {blend_files[0]}")
 
     # ------------------------------------------------------------------ Cleanup
 
