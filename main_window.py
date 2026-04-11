@@ -364,6 +364,19 @@ class ConvertThread(QThread):
             self.finished.emit(False, str(e))
 
 
+# Row height for the render queue tree (must match embedded QComboBox + margins).
+QUEUE_TREE_ROW_HEIGHT_PX = 28
+
+
+def _apply_queue_tree_row_height(item: QTreeWidgetItem) -> None:
+    """Keep every column’s size hint equal so row height does not depend on refresh path."""
+    if not item:
+        return
+    hint = QSize(0, QUEUE_TREE_ROW_HEIGHT_PX)
+    for col in range(item.columnCount()):
+        item.setSizeHint(col, hint)
+
+
 # ---------------------------------------------------------------------------
 # Main Window
 # ---------------------------------------------------------------------------
@@ -378,6 +391,7 @@ class DraggableQueueTree(QTreeWidget):
         self.setAcceptDrops(True)
         self.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
         self.setDropIndicatorShown(True)
+        self.setUniformRowHeights(True)
         self._main_window: MainWindow | None = None
         self._drag_source_row: int | None = None
         self._drag_widget_state: dict[int, dict[int, str]] = {}
@@ -411,6 +425,8 @@ class DraggableQueueTree(QTreeWidget):
             return
         state = self._drag_widget_state[job_id]
         main_window = self._main_window
+        if main_window is None:
+            return
         for col, text in state.items():
             combo = QComboBox(self)
             for p in main_window._blender_profiles:
@@ -447,6 +463,9 @@ class DraggableQueueTree(QTreeWidget):
             super().startDrag(supportedActions)
 
     def dropEvent(self, event):
+        if event is None:
+            super().dropEvent(event)
+            return
         if not self._main_window:
             super().dropEvent(event)
             return
@@ -512,16 +531,29 @@ class DraggableQueueTree(QTreeWidget):
         self.blockSignals(False)
         self.setUpdatesEnabled(True)
 
+        main_window = self._main_window
         for i in range(self.topLevelItemCount()):
             item = self.topLevelItem(i)
             if item:
                 try:
                     jid = int(item.text(0))
-                    if jid in self._drag_widget_state:
-                        self._restore_widget_state(item)
                 except (ValueError, AttributeError):
-                    pass
-                item.setSizeHint(0, QSize(0, 28))
+                    continue
+                job = next((j for j in main_window.jobs if j.job_id == jid), None)
+                if job and job.blender_profile:
+                    combo = QComboBox(self)
+                    for p in main_window._blender_profiles:
+                        combo.addItem(p.name)
+                    combo.addItem(CUSTOM_PROFILE_LABEL)
+                    idx = combo.findText(job.blender_profile)
+                    combo.setCurrentIndex(idx if idx >= 0 else 0)
+                    combo.currentTextChanged.connect(
+                        lambda t, jid=jid: main_window._on_table_blender_changed(jid, t)
+                    )
+                    self.setItemWidget(item, 4, combo)
+                elif jid in self._drag_widget_state:
+                    self._restore_widget_state(item)
+                _apply_queue_tree_row_height(item)
 
         self.resizeColumnToContents(0)
 
@@ -719,13 +751,13 @@ class MainWindow(QMainWindow):
         self.queue_tree.setColumnWidth(1, 140)
         self.queue_tree.setColumnWidth(2, 95)
         self.queue_tree.setColumnWidth(3, 70)
-        self.queue_tree.setColumnWidth(4, 80)
+        self.queue_tree.setColumnWidth(4, 110)
         self.queue_tree.setColumnWidth(5, 32)
         self.queue_tree.setColumnWidth(6, 32)
         self.queue_tree.setColumnWidth(7, 100)
         self.queue_tree.setColumnWidth(8, 60)
         self.queue_tree.setColumnWidth(9, 115)
-        self.queue_tree.setColumnWidth(10, 50)
+        self.queue_tree.setColumnWidth(10, 75)
         self.queue_tree.setColumnWidth(11, 52)
         self.queue_tree.currentItemChanged.connect(self._on_job_select)
         queue_layout.addWidget(self.queue_tree)
@@ -1520,9 +1552,9 @@ class MainWindow(QMainWindow):
             self._camera_hint.setText(f"({len(cams)} camera(s))")
             self._camera_hint.setStyleSheet(f"color: {C['green']}; font-size: 8pt;")
         else:
-            self.camera_combo.addItem("(ninguna)")
+            self.camera_combo.addItem("(not selected)")
             self.camera_combo.setEnabled(False)
-            self._camera_hint.setText("(sin cámaras)")
+            self._camera_hint.setText("(no cameras)")
             self._camera_hint.setStyleSheet(f"color: {C['red']}; font-size: 8pt;")
         self.camera_combo.blockSignals(False)
 
@@ -2321,7 +2353,7 @@ class MainWindow(QMainWindow):
             )
             self.queue_tree.setItemWidget(item, 4, combo)
 
-            item.setSizeHint(0, QSize(0, 28))
+            _apply_queue_tree_row_height(item)
 
         restore_ids = selected_ids if selected_ids is not None else set()
         restore_current = (
