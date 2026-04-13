@@ -841,31 +841,35 @@ class MainWindow(QMainWindow):
         btn_browse_blend.clicked.connect(self._browse_blend)
         form.addWidget(btn_browse_blend, 0, 2)
 
-        # Scene
+        # Scene + Camera (combined row) - label alineado como .blend file
         form.addWidget(QLabel("Scene:"), 1, 0, Qt.AlignmentFlag.AlignRight)
-        scene_row = QHBoxLayout()
+        scene_camera_inner = QHBoxLayout()
         self.scene_combo = QComboBox()
         self.scene_combo.setMinimumWidth(180)
         self.scene_combo.currentTextChanged.connect(self._on_scene_changed)
-        scene_row.addWidget(self.scene_combo)
+        scene_camera_inner.addWidget(self.scene_combo)
         btn_load = QPushButton("Load Scenes")
         btn_load.clicked.connect(self._load_blend_info_async)
-        scene_row.addWidget(btn_load)
-        scene_row.addStretch()
-        form.addLayout(scene_row, 1, 1, 1, 2)
-
-        # Camera
-        form.addWidget(QLabel("Camera:"), 2, 0, Qt.AlignmentFlag.AlignRight)
-        camera_row = QHBoxLayout()
+        scene_camera_inner.addWidget(btn_load)
+        scene_camera_inner.addSpacing(12)
+        scene_camera_inner.addWidget(QLabel("Camera:"))
         self.camera_combo = QComboBox()
         self.camera_combo.setMinimumWidth(180)
         self.camera_combo.setEnabled(False)
-        camera_row.addWidget(self.camera_combo)
-        self._camera_hint = QLabel("(select your scene first)")
+        scene_camera_inner.addWidget(self.camera_combo)
+        self._camera_hint = QLabel("(select scene first)")
         self._camera_hint.setStyleSheet(f"color: {C['subtext']}; font-size: 8pt;")
-        camera_row.addWidget(self._camera_hint)
-        camera_row.addStretch()
-        form.addLayout(camera_row, 2, 1, 1, 2)
+        scene_camera_inner.addWidget(self._camera_hint)
+        scene_camera_inner.addStretch()
+        form.addLayout(scene_camera_inner, 1, 1, 1, 2)
+
+        # Use Nodes button
+        self.use_nodes_btn = QPushButton("COMPOSITING NODES: OFF")
+        self.use_nodes_btn.setObjectName("nodes_off")
+        self.use_nodes_btn.setCheckable(True)
+        self.use_nodes_btn.setChecked(False)
+        self.use_nodes_btn.clicked.connect(self._toggle_use_nodes)
+        self.use_nodes_btn.setStyle(self.use_nodes_btn.style())
 
         # Frame range + samples
         range_row = QHBoxLayout()
@@ -901,38 +905,30 @@ class MainWindow(QMainWindow):
         self._resolution_hint.setStyleSheet(f"color: {C['mauve']}; font-size: 8pt;")
         range_row.addWidget(self._resolution_hint)
 
+        range_row.addWidget(self.use_nodes_btn)
         range_row.addStretch()
         form.addWidget(QLabel("Frames:"), 3, 0, Qt.AlignmentFlag.AlignRight)
         form.addLayout(range_row, 3, 1, 1, 2)
 
-        # Use Nodes button
-        self.use_nodes_btn = QPushButton("COMPOSITING NODES: OFF")
-        self.use_nodes_btn.setObjectName("nodes_off")
-        self.use_nodes_btn.setCheckable(True)
-        self.use_nodes_btn.setChecked(False)
-        self.use_nodes_btn.clicked.connect(self._toggle_use_nodes)
-        self.use_nodes_btn.setStyle(self.use_nodes_btn.style())
-        form.addWidget(self.use_nodes_btn, 4, 1)
-
         # Output path + sequence toggle
-        form.addWidget(QLabel("Output Path:"), 5, 0, Qt.AlignmentFlag.AlignRight)
+        form.addWidget(QLabel("Output Path:"), 4, 0, Qt.AlignmentFlag.AlignRight)
         output_row = QHBoxLayout()
         self.output_edit = QLineEdit()
         output_row.addWidget(self.output_edit)
         btn_browse_out = QPushButton("Browse")
         btn_browse_out.clicked.connect(self._browse_output)
         output_row.addWidget(btn_browse_out)
-        form.addLayout(output_row, 5, 1, 1, 2)
+        form.addLayout(output_row, 4, 1, 1, 2)
 
         # Sequence name
-        form.addWidget(QLabel("Sequence Name:"), 6, 0, Qt.AlignmentFlag.AlignRight)
+        form.addWidget(QLabel("Sequence Name:"), 5, 0, Qt.AlignmentFlag.AlignRight)
         seq_row = QHBoxLayout()
         self.sequence_edit = QLineEdit()
         self.sequence_edit.setPlaceholderText(
             "e.g. shot_010_lighting  (used as output subfolder)"
         )
         seq_row.addWidget(self.sequence_edit)
-        form.addLayout(seq_row, 6, 1, 1, 2)
+        form.addLayout(seq_row, 5, 1, 1, 2)
 
         # Add / Apply row
         add_apply_row = QHBoxLayout()
@@ -968,57 +964,50 @@ class MainWindow(QMainWindow):
         prog_group = QGroupBox("Render Progress")
         prog_grid = QGridLayout(prog_group)
         prog_grid.setColumnStretch(1, 1)
+        prog_grid.setColumnStretch(3, 1)
+        prog_grid.setSpacing(8)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setTextVisible(True)
         prog_grid.addWidget(QLabel("Progress:"), 0, 0, Qt.AlignmentFlag.AlignRight)
-        prog_grid.addWidget(self.progress_bar, 0, 1)
+        prog_grid.addWidget(self.progress_bar, 0, 1, 1, 3)
 
         self._prog_vars: dict[str, QLabel] = {}
-        rows = [
+
+        left_rows = [
             ("current_frame", "Current Frame:", C["peach"]),
             ("elapsed", "Elapsed:", C["accent"]),
             ("eta", "ETA:", C["green"]),
             ("frame_time", "Last Frame:", C["mauve"]),
+        ]
+        right_rows = [
             ("frames_done", "Frames Done:", C["text"]),
             ("samples", "Samples:", C["yellow"]),
             ("device", "Render Device:", C["teal"]),
         ]
-        for i, (key, lbl, color) in enumerate(rows, start=1):
+
+        for i, (key, lbl, color) in enumerate(left_rows, start=1):
             prog_grid.addWidget(QLabel(lbl), i, 0, Qt.AlignmentFlag.AlignRight)
             val = QLabel("—")
             val.setStyleSheet(f"color: {color}; font-weight: bold;")
             prog_grid.addWidget(val, i, 1, Qt.AlignmentFlag.AlignLeft)
             self._prog_vars[key] = val
 
+        for i, (key, lbl, color) in enumerate(right_rows, start=1):
+            prog_grid.addWidget(QLabel(lbl), i, 2, Qt.AlignmentFlag.AlignRight)
+            val = QLabel("—")
+            val.setStyleSheet(f"color: {color}; font-weight: bold;")
+            prog_grid.addWidget(val, i, 3, Qt.AlignmentFlag.AlignLeft)
+            self._prog_vars[key] = val
+
         right_layout.addWidget(prog_group)
 
         # Preview
-        preview_group = QGroupBox("Last Rendered Frame")
-        preview_layout = QVBoxLayout(preview_group)
-        self.preview_label = QLabel("No preview")
-        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumHeight(150)
-        self.preview_label.setStyleSheet(f"background: #181825; color: {C['subtext']};")
-        preview_layout.addWidget(self.preview_label)
-        btn_refresh_preview = QPushButton("Refresh Preview")
-        btn_refresh_preview.clicked.connect(self._refresh_preview)
-        preview_layout.addWidget(btn_refresh_preview)
-        right_layout.addWidget(preview_group)
-
-        # Open folder button (above export)
         self._btn_open_folder = QPushButton("📂  Open Output Folder")
         self._btn_open_folder.setEnabled(False)
         self._btn_open_folder.clicked.connect(self._open_output_folder)
-        right_layout.addWidget(self._btn_open_folder)
 
-        # Export / Convert
-        export_group = QGroupBox("Export Video")
-        export_layout = QVBoxLayout(export_group)
-
-        # Row 1: Preview button (for Running jobs)
-        preview_row = QHBoxLayout()
         self._btn_preview = QPushButton("🎬  Preview")
         self._btn_preview.setToolTip(
             "Generate a quick MP4 with the frames rendered so far.\n"
@@ -1027,18 +1016,45 @@ class MainWindow(QMainWindow):
         )
         self._btn_preview.setEnabled(False)
         self._btn_preview.clicked.connect(self._preview_video)
-        preview_row.addWidget(self._btn_preview)
-        preview_row.addStretch()
-        export_layout.addLayout(preview_row)
 
-        # Row 2: Preset dropdown + Convert button (for Done jobs)
-        convert_row = QHBoxLayout()
+        preview_group = QGroupBox("Last Rendered Frame")
+        preview_layout = QVBoxLayout(preview_group)
+        self.preview_label = QLabel("No preview")
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_label.setMinimumHeight(150)
+        self.preview_label.setStyleSheet(f"background: #181825; color: {C['subtext']};")
+        preview_layout.addWidget(self.preview_label)
+
+        preview_btn_row = QHBoxLayout()
+        btn_refresh_preview = QPushButton("Refresh Preview")
+        btn_refresh_preview.clicked.connect(self._refresh_preview)
+        preview_btn_row.addWidget(btn_refresh_preview)
+        preview_btn_row.addWidget(self._btn_preview)
+        preview_btn_row.addWidget(self._btn_open_folder)
+        preview_btn_row.addStretch()
+        preview_layout.addLayout(preview_btn_row)
+        right_layout.addWidget(preview_group)
+
+        # Export / Convert
+        export_group = QGroupBox("Export Video")
+        export_layout = QVBoxLayout(export_group)
+
+        # Row 1: FPS + Preset combo
+        fps_preset_row = QHBoxLayout()
+        self._fps_label = QLabel("FPS: —")
+        self._fps_label.setStyleSheet(f"color: {C['teal']}; font-size: 9pt;")
+        fps_preset_row.addWidget(self._fps_label)
+        fps_preset_row.addStretch()
+
         self._preset_combo = QComboBox()
         self._preset_combo.addItems(preset_names())
         self._preset_combo.setMinimumWidth(200)
         self._preset_combo.setEnabled(False)
-        convert_row.addWidget(self._preset_combo)
+        fps_preset_row.addWidget(self._preset_combo)
+        export_layout.addLayout(fps_preset_row)
 
+        # Row 2: Convert button (full width)
+        convert_row = QHBoxLayout()
         self._btn_convert = QPushButton("🎬  Convert Video")
         self._btn_convert.setToolTip(
             "Convert the sequence of PNGs from the selected job to the chosen format.\n"
@@ -1049,14 +1065,6 @@ class MainWindow(QMainWindow):
         self._btn_convert.clicked.connect(self._convert_video)
         convert_row.addWidget(self._btn_convert)
         export_layout.addLayout(convert_row)
-
-        # Row 3: FPS info
-        fps_row = QHBoxLayout()
-        self._fps_label = QLabel("FPS: —")
-        self._fps_label.setStyleSheet(f"color: {C['teal']}; font-size: 9pt;")
-        fps_row.addWidget(self._fps_label)
-        fps_row.addStretch()
-        export_layout.addLayout(fps_row)
 
         right_layout.addWidget(export_group)
 
@@ -1765,7 +1773,7 @@ class MainWindow(QMainWindow):
 
         out_base = str(payload.get("output_path", "")).strip()
         if not out_base:
-            out_base = os.path.join(os.path.dirname(blend), "brm_renders")
+            out_base = os.path.join(os.path.dirname(blend), "juice_renders")
 
         return {
             "blend_file": blend,
@@ -2129,9 +2137,7 @@ class MainWindow(QMainWindow):
             added += 1
 
         if added == 0:
-            QMessageBox.information(
-                self, "Info", "No new Pending jobs to queue."
-            )
+            QMessageBox.information(self, "Info", "No new Pending jobs to queue.")
             return
 
         self._sound_played_for_current_batch = False
@@ -3069,7 +3075,9 @@ class MainWindow(QMainWindow):
 
         fps = self._get_fps_for_job(job)
         file_prefix = job.sequence_name if job.sequence_name else "frame"
-        output_file = os.path.join(job.output_path, f"{file_prefix}_preview.mp4")
+        output_file = os.path.join(
+            job.effective_output_path, f"{file_prefix}_preview.mp4"
+        )
 
         self._btn_preview.setEnabled(False)
         self._fps_label.setText(f"FPS: {fps:g}  ⏳ generando preview…")
@@ -3104,7 +3112,7 @@ class MainWindow(QMainWindow):
         fps = self._get_fps_for_job(job)
         file_prefix = job.sequence_name if job.sequence_name else "frame"
         output_file = os.path.join(
-            job.output_path, f"{file_prefix}{preset['extension']}"
+            job.effective_output_path, f"{file_prefix}{preset['extension']}"
         )
 
         # Warn if output file already exists
