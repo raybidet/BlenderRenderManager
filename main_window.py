@@ -1405,9 +1405,9 @@ class MainWindow(QMainWindow):
 
             self.camera_combo.blockSignals(True)
             self.camera_combo.clear()
-            self.camera_combo.addItem("(seleccionar scene primero)")
+            self.camera_combo.addItem("(select scene first)")
             self.camera_combo.setEnabled(False)
-            self._camera_hint.setText("(seleccionar scene primero)")
+            self._camera_hint.setText("(select scene first)")
             self._camera_hint.setStyleSheet(f"color: {C['subtext']}; font-size: 8pt;")
             self.camera_combo.blockSignals(False)
 
@@ -2002,28 +2002,28 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Warning",
-                "Hay jobs en ejecución dentro de la selección.\n"
-                "Cancelalos antes de eliminarlos.",
+                "There are running jobs in the selection.\n"
+                "Cancel them before deleting them.",
             )
             return
 
         if len(jobs) == 1:
             j = jobs[0]
             msg = (
-                f"¿Eliminar Job #{j.job_id} ({os.path.basename(j.blend_file)})?\n"
-                "Esta acción no se puede deshacer."
+                f"Delete Job #{j.job_id} ({os.path.basename(j.blend_file)})?\n"
+                "This action cannot be undone."
             )
         else:
             ids = ", ".join(f"#{j.job_id}" for j in jobs)
             msg = (
-                f"¿Eliminar {len(jobs)} jobs seleccionados?\n"
+                f"Delete {len(jobs)} selected jobs?\n"
                 f"{ids}\n\n"
-                "Esta acción no se puede deshacer."
+                "This action cannot be undone."
             )
 
         answer = QMessageBox.question(
             self,
-            "Confirmar eliminación",
+            "Confirm deletion",
             msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -2042,7 +2042,7 @@ class MainWindow(QMainWindow):
 
         self._refresh_tree()
         self._auto_save_queue()
-        self.status_bar.showMessage(f"{len(removed_ids)} job(s) eliminado(s).")
+        self.status_bar.showMessage(f"{len(removed_ids)} job(s) deleted.")
 
     # ------------------------------------------------------------------ Render control
 
@@ -2051,7 +2051,7 @@ class MainWindow(QMainWindow):
         pending_jobs = [j for j in selected if j.status == RenderJob.STATUS_PENDING]
         if not pending_jobs:
             QMessageBox.information(
-                self, "Info", "Ningún job seleccionado está en estado Pending."
+                self, "Info", "No selected job is in Pending state."
             )
             return
 
@@ -2113,7 +2113,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Info",
-                "Ya hay un job en ejecución. Se encolaron los seleccionados para correr al terminar.",
+                "There is a job running. The selected jobs have been queued to run when the current job finishes.",
             )
 
         existing = set(self._sequential_queue)
@@ -2130,12 +2130,12 @@ class MainWindow(QMainWindow):
 
         if added == 0:
             QMessageBox.information(
-                self, "Info", "No hay jobs Pending nuevos para encolar."
+                self, "Info", "No new Pending jobs to queue."
             )
             return
 
         self._sound_played_for_current_batch = False
-        self.status_bar.showMessage(f"Encolados {added} job(s) en modo secuencial.")
+        self.status_bar.showMessage(f"Queued {added} job(s) in sequential mode.")
         self._start_next_queued_job()
 
     def _start_next_queued_job(self) -> None:
@@ -2160,7 +2160,7 @@ class MainWindow(QMainWindow):
         running = [j for j in jobs if j.status == RenderJob.STATUS_RUNNING]
         if not running:
             QMessageBox.information(
-                self, "Info", "No hay jobs seleccionados en estado Running."
+                self, "Info", "No selected jobs are in Running state."
             )
             return
 
@@ -2176,7 +2176,7 @@ class MainWindow(QMainWindow):
         if self._selected_job_id in {j.job_id for j in running}:
             self._btn_apply_to_job.setEnabled(True)
 
-        self.status_bar.showMessage(f"{len(running)} job(s) cancelado(s).")
+        self.status_bar.showMessage(f"{len(running)} job(s) cancelled.")
 
     # ------------------------------------------------------------------ Signals from threads
 
@@ -2234,7 +2234,7 @@ class MainWindow(QMainWindow):
             ]
             if not selected_active:
                 self.status_bar.showMessage(
-                    "🎉 Jobs seleccionados finalizados — reproduciendo sonido…"
+                    "🎉 Selected jobs finished — playing sound…"
                 )
                 self._play_queue_done_sound()
                 self._sound_played_for_current_batch = True
@@ -2252,7 +2252,7 @@ class MainWindow(QMainWindow):
             if j.status in (RenderJob.STATUS_RUNNING, RenderJob.STATUS_PENDING)
         ]
         if not active and not self._sequential_queue:
-            self.status_bar.showMessage("🎉 Cola completa — reproduciendo sonido…")
+            self.status_bar.showMessage("🎉 Queue complete — playing sound…")
             self._play_queue_done_sound()
 
     # ------------------------------------------------------------------ Timer
@@ -2445,7 +2445,7 @@ class MainWindow(QMainWindow):
 
         save_config(self.jobs, self._blender_profiles)
         self.status_bar.showMessage(
-            f"Job #{job.job_id} actualizado desde selector Blender ({profile_name})."
+            f"Job #{job.job_id} updated from Blender selector ({profile_name})."
         )
 
     def _update_pause_button_for_selection(self) -> None:
@@ -2525,9 +2525,9 @@ class MainWindow(QMainWindow):
             origin_job_id = self._selected_job_id
             answer = QMessageBox.question(
                 self,
-                "Cambios pendientes",
-                "Hay cambios sin aplicar en el formulario.\n\n"
-                "¿Deseas aplicarlos al job actualmente seleccionado antes de cambiar?",
+                "Pending changes",
+                "There are changes that need to be applied to the form.\n\n"
+                "Do you want to apply them to the currently selected job before changing?",
                 QMessageBox.StandardButton.Yes
                 | QMessageBox.StandardButton.No
                 | QMessageBox.StandardButton.Cancel,
@@ -2731,15 +2731,15 @@ class MainWindow(QMainWindow):
 
             if paused_count == 0 and resumed_count == 0:
                 QMessageBox.information(
-                    self, "Info", "No hay jobs Running/Paused válidos en la selección."
+                    self, "Info", "No valid Running/Paused jobs in the selection."
                 )
                 return
 
             self.status_bar.showMessage(
-                f"Pause/Resume aplicado — pausados: {paused_count}, reanudados: {resumed_count}."
+                f"Pause/Resume applied — paused: {paused_count}, resumed: {resumed_count}."
             )
         except Exception as e:
-            QMessageBox.warning(self, "Error al pausar/reanudar", str(e))
+            QMessageBox.warning(self, "Error pausing/resuming", str(e))
 
     # ------------------------------------------------------------------ Move Up / Down
 
@@ -2777,8 +2777,8 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Info",
-                "Solo se pueden reintentar jobs en estado Error o Cancelado.\n"
-                "La selección incluye jobs no válidos.",
+                "Only jobs in Error or Cancelled state can be retried.\n"
+                "The selection includes invalid jobs.",
             )
             return
 
@@ -2805,7 +2805,7 @@ class MainWindow(QMainWindow):
                 self._update_folder_btn(sel)
             self._btn_apply_to_job.setEnabled(True)
 
-        self.status_bar.showMessage(f"{len(jobs)} job(s) reseteado(s) a Pending.")
+        self.status_bar.showMessage(f"{len(jobs)} job(s) reset to Pending.")
 
     def _duplicate_selected(self):
         jobs = self._selected_jobs()
@@ -2832,7 +2832,7 @@ class MainWindow(QMainWindow):
 
         self._refresh_tree()
         self._auto_save_queue()
-        self.status_bar.showMessage(f"{len(created)} job(s) duplicado(s).")
+        self.status_bar.showMessage(f"{len(created)} job(s) duplicated.")
 
     def _install_keyboard_focus_tracking(self):
         """Install event filters on form widgets to track focus context."""
@@ -3024,7 +3024,7 @@ class MainWindow(QMainWindow):
             else:
                 subprocess.Popen(["xdg-open", path])
         except Exception as e:
-            QMessageBox.warning(self, "Error", f"No se pudo abrir la carpeta:\n{e}")
+            QMessageBox.warning(self, "Error", f"cannot open folder:\n{e}")
 
     def _update_folder_btn(self, job: RenderJob):
         """Enable the Open Folder button when the job has an output path."""
@@ -3063,7 +3063,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Info",
-                "Preview solo está disponible para jobs en ejecución (Running).",
+                "Preview is only available for jobs in Running state.",
             )
             return
 

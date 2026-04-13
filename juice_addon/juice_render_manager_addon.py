@@ -8,13 +8,13 @@ bl_info = {
     "category": "Render",
 }
 
-import bpy
+import bpy  # pyright: ignore[reportMissingImports]
 import json
 import socket
 import subprocess
 import sys
 import time
-from bpy.props import StringProperty, IntProperty
+from bpy.props import StringProperty, IntProperty  # pyright: ignore[reportMissingImports]
 
 
 def _collect_payload(context):
@@ -71,9 +71,9 @@ def _launch_juice(executable_path):
 
 
 class JuiceProperties(bpy.types.PropertyGroup):
-    host: StringProperty(name="Host", default="127.0.0.1")
-    port: IntProperty(name="Port", default=8765, min=1, max=65535)
-    juice_path: StringProperty(
+    host: StringProperty(name="Host", default="127.0.0.1")  # pyright: ignore[reportInvalidTypeForm]
+    port: IntProperty(name="Port", default=8765, min=1, max=65535)  # pyright: ignore[reportInvalidTypeForm]
+    juice_path: StringProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Juice Executable/Python Script",
         subtype="FILE_PATH",
         default="",
@@ -91,14 +91,14 @@ class Juice_OT_SendToManager(bpy.types.Operator):
         payload = _collect_payload(context)
 
         if not payload["payload"]["blend_file"]:
-            self.report({"ERROR"}, "Guarda el .blend antes de enviar.")
+            self.report({"ERROR"}, "Save the .blend before sending.")
             return {"CANCELLED"}
 
         # First attempt
         try:
             resp = _send_json_line(props.host, props.port, payload, timeout=1.5)
             if resp.get("ok"):
-                self.report({"INFO"}, "Job enviado a Juice | Render Manager for Blender.")
+                self.report({"INFO"}, "Job sent to Juice | Render Manager for Blender.")
                 return {"FINISHED"}
         except Exception:
             resp = {"ok": False}
@@ -107,7 +107,7 @@ class Juice_OT_SendToManager(bpy.types.Operator):
         try:
             _launch_juice(props.juice_path)
         except Exception as e:
-            self.report({"ERROR"}, f"No se pudo abrir Juice: {e}")
+            self.report({"ERROR"}, f"Cannot open Juice: {e}")
             return {"CANCELLED"}
 
         time.sleep(2.0)
@@ -115,13 +115,13 @@ class Juice_OT_SendToManager(bpy.types.Operator):
             try:
                 resp = _send_json_line(props.host, props.port, payload, timeout=1.5)
                 if resp.get("ok"):
-                    self.report({"INFO"}, "Juice abierto y job enviado.")
+                    self.report({"INFO"}, "Juice opened and job sent.")
                     return {"FINISHED"}
             except Exception:
                 pass
             time.sleep(1.0)
 
-        self.report({"ERROR"}, "No se pudo conectar a Juice tras abrirlo.")
+        self.report({"ERROR"}, "Cannot connect to Juice after opening it.")
         return {"CANCELLED"}
 
 
