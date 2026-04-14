@@ -148,38 +148,6 @@ else:
 """
 
 
-def build_opengl_script(job: RenderJob) -> str:
-    """Genera script para preview rapido con render real (EEVEE, 1 sample, 15%)."""
-    camera_line = (
-        f"cam = bpy.data.objects.get({repr(job.camera)})\n"
-        f"if cam and cam.type == 'CAMERA':\n"
-        f"    scene.camera = cam"
-        if job.camera
-        else "# use scene default camera"
-    )
-    frame_num = job.frame_start if job.frame_start else 1
-    blend_dir = os.path.dirname(job.blend_file) or "."
-    return f"""\
-import bpy, os
-
-scene = bpy.data.scenes.get('{job.scene}') or bpy.context.scene
-bpy.context.window.scene = scene
-
-{camera_line}
-
-scene.frame_set({frame_num})
-scene.render.resolution_percentage = 15
-scene.cycles.samples = 1
-scene.render.engine = 'BLENDER_EEVEE_NEXT'
-
-bpy.ops.render.render(animation=False)
-
-tmp_path = os.path.join(r'{blend_dir}', '_brm_preview.png')
-bpy.data.images['Render Result'].save_render(tmp_path)
-print('PREVIEW_IMAGE:' + tmp_path)
-""".format(frame_num=frame_num, blend_dir=blend_dir)
-
-
 def get_blend_info(blend_file: str, blender_exec: str) -> dict:
     """
     Query a .blend file for scene names, Cycles sample counts, FPS, and resolution %.
@@ -203,7 +171,7 @@ def get_blend_info(blend_file: str, blender_exec: str) -> dict:
         "'samples':getattr(s.cycles,'samples',128),"
         "'fps':round(s.render.fps/max(s.render.fps_base,0.001),3),"
         "'resolution_pct':float(s.render.resolution_percentage),"
-        "'cameras':[c.name for c in s.collection.all_objects if c.type=='CAMERA']"
+        "'cameras':[c.name for c in s.objects if c.type=='CAMERA']"
         "} for s in bpy.data.scenes];"
         "print('BLEND_INFO:'+json.dumps(data,ensure_ascii=False))"
     )
@@ -298,13 +266,13 @@ class RenderWorker:
         file_prefix = job.sequence_name if job.sequence_name else "frame"
         output_template = os.path.join(job.effective_output_path, f"{file_prefix}_####")
 
-        # Write GPU/setup script next to the .blend file (avoids permission issues)
-        blend_dir = os.path.dirname(job.blend_file) or "."
-        tmp_script_path = os.path.join(blend_dir, "_brm_setup.py")
+        # Write GPU/setup script to a temp file
         try:
-            with open(tmp_script_path, "w", encoding="utf-8") as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix="_brm.py", delete=False, encoding="utf-8"
+            ) as f:
                 f.write(build_render_script(job))
-            self._tmp_script = tmp_script_path
+                self._tmp_script = f.name
         except Exception as e:
             self._log(f"[ERROR] Cannot write temp script: {e}")
             self._finish(job.STATUS_ERROR)
@@ -347,6 +315,7 @@ class RenderWorker:
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
+                creationflags=0,
             )
             job.process = proc
 
@@ -449,8 +418,8 @@ class RenderWorker:
     def _log(self, text: str) -> None:
         self._on_log(self.job.job_id, text)
         self.job.log_lines.append(text)
-        if len(self.job.log_lines) >= LOG_MAX_LINES:
-            self.job.log_lines = self.job.log_lines[-(LOG_MAX_LINES - 100) :]
+        if len(self.job.log_lines) > LOG_MAX_LINES:
+            self.job.log_lines = self.job.log_lines[-LOG_MAX_LINES:]
 
     def _finish(self, status: str) -> None:
         self.job.status = status
