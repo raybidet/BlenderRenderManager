@@ -317,11 +317,12 @@ class ViewportPreviewThread(QThread):
         import subprocess as sp
 
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix="_brm.py", delete=False, encoding="utf-8"
-            ) as f:
+            # Write script next to the .blend file (avoids permission issues)
+            blend_dir = os.path.dirname(self.job.blend_file) or "."
+            tmp_script_path = os.path.join(blend_dir, "_brm_opengl.py")
+            with open(tmp_script_path, "w", encoding="utf-8") as f:
                 f.write(build_opengl_script(self.job))
-                self._tmp_script = f.name
+            self._tmp_script = tmp_script_path
 
             img_path = None
             stderr_lines = []

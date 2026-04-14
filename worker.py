@@ -34,9 +34,12 @@ def build_render_script(job: RenderJob) -> str:
     use_nodes_val = "True" if job.use_nodes else "False"
 
     if job.samples_override is not None:
-        samples_block = f"scene.cycles.samples = {job.samples_override}"
+        samples_block = (
+            f"scene.cycles.samples = {job.samples_override}\n"
+            f"print('[BRM] Samples override:', {job.samples_override})"
+        )
     else:
-        samples_block = ""
+        samples_block = "print('[BRM] Samples: scene default =', scene.cycles.samples)"
 
     return f"""\
 import bpy
@@ -45,6 +48,7 @@ scene = bpy.data.scenes.get('{job.scene}') or bpy.context.scene
 
 # ── Compositing nodes ──────────────────────────────────────────────────────
 scene.use_nodes = {use_nodes_val}
+print('[BRM] use_nodes =', scene.use_nodes)
 
 # If compositing nodes are enabled for this job, sync File Output base_path
 # to the job output path (effective path includes optional sequence subfolder).
@@ -52,7 +56,9 @@ if {use_nodes_val}:
     try:
         _output_base = r'''{job.effective_output_path}'''
         _nt = scene.node_tree
-        if _nt is not None:
+        if _nt is None:
+            print('[BRM] WARNING: scene.node_tree is None; cannot set File Output base_path.')
+        else:
             _targets = []
 
             # Prefer exact default node name first (as requested in TODO)
@@ -66,46 +72,79 @@ if {use_nodes_val}:
                     _targets.append(_n)
 
             if not _targets:
-                pass
+                print('[BRM] WARNING: no CompositorNodeOutputFile node found in scene:', scene.name)
             else:
                 for _node in _targets:
                     _node.base_path = _output_base
+                    print('[BRM] File Output base_path set:', _node.name, '->', _node.base_path)
     except Exception as _e:
-        pass
+        print('[BRM] WARNING: could not set File Output base_path:', _e)
 
 # ── Sample override ────────────────────────────────────────────────────────
 {samples_block}
+
+# ── Reload user preferences (GPU config lives here) ────────────────────────
+# --background skips userpref.blend; we force-reload it so that
+# compute_device_type and per-device .use flags are restored.
+try:
+    bpy.ops.wm.read_userpref()
+    print('[BRM] User prefs reloaded OK.')
+except Exception as _e:
+    print('[BRM] WARNING: prefs reload error:', _e)
 
 # ── Re-apply scene-level overrides after prefs reload ──────────────────────
 # Keep these after read_userpref() to avoid any accidental reset.
 if {repr(job.samples_override)} is not None:
     scene.cycles.samples = {job.samples_override}
+    print('[BRM] Samples override (post-prefs):', {job.samples_override})
+else:
+    print('[BRM] Samples: scene default =', scene.cycles.samples)
 
 if {repr(job.resolution_pct)} is not None:
     _res_pct = int(round(float({job.resolution_pct})))
     _res_pct = max(0, min(100, _res_pct))
     scene.render.resolution_percentage = _res_pct
+    print('[BRM] Resolution % override (post-prefs):', _res_pct)
+else:
+    print('[BRM] Resolution %: scene default =', scene.render.resolution_percentage)
 
 # ── Apply GPU from reloaded prefs ──────────────────────────────────────────
 try:
     _cprefs = bpy.context.preferences.addons['cycles'].preferences
+    # get_devices() MUST be called after a prefs reload to populate device list
     _cprefs.get_devices()
     _ctype  = str(_cprefs.compute_device_type)
     _active = [d.name for d in _cprefs.devices if d.use]
     if _ctype != 'NONE' and _active:
         scene.cycles.device = 'GPU'
+        print('[BRM] Compute type  :', _ctype)
+        print('[BRM] Active devices:', ', '.join(_active))
     else:
         scene.cycles.device = 'CPU'
+        print('[BRM] No GPU devices active — CPU render.')
 except Exception as _e:
     scene.cycles.device = 'CPU'
+    print('[BRM] GPU setup error:', _e)
+
+print('[BRM] cycles.device  =', scene.cycles.device)
+print('[BRM] render.engine  =', scene.render.engine)
+print('[BRM] resolution_percentage =', scene.render.resolution_percentage)
+print('[BRM] resolution_x =', scene.render.resolution_x)
+print('[BRM] resolution_y =', scene.render.resolution_y)
 
 # ── Camera selection ─────────────────────────────────────────────────────────
 if {repr(job.camera)}:
     _cam = bpy.data.objects.get({repr(job.camera)})
     if _cam and _cam.type == 'CAMERA':
         scene.camera = _cam
+        print('[BRM] Camera set to:', {repr(job.camera)})
+    else:
+        print('[BRM] WARNING: camera not found:', {repr(job.camera)})
 else:
-    pass
+    if scene.camera:
+        print('[BRM] Using scene default camera:', scene.camera.name)
+    else:
+        print('[BRM] No camera set (scene default)')
 """
 
 
@@ -119,8 +158,9 @@ def build_opengl_script(job: RenderJob) -> str:
         else "# use scene default camera"
     )
     frame_num = job.frame_start if job.frame_start else 1
+    blend_dir = os.path.dirname(job.blend_file) or "."
     return f"""\
-import bpy, tempfile, os
+import bpy, os
 
 scene = bpy.data.scenes.get('{job.scene}') or bpy.context.scene
 bpy.context.window.scene = scene
@@ -134,11 +174,10 @@ scene.render.engine = 'BLENDER_EEVEE_NEXT'
 
 bpy.ops.render.render(animation=False)
 
-tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
-tmp.close()
-bpy.data.images['Render Result'].save_render(tmp.name)
-print('PREVIEW_IMAGE:' + tmp.name)
-""".format(frame_num=frame_num)
+tmp_path = os.path.join(r'{blend_dir}', '_brm_preview.png')
+bpy.data.images['Render Result'].save_render(tmp_path)
+print('PREVIEW_IMAGE:' + tmp_path)
+""".format(frame_num=frame_num, blend_dir=blend_dir)
 
 
 def get_blend_info(blend_file: str, blender_exec: str) -> dict:
@@ -259,13 +298,13 @@ class RenderWorker:
         file_prefix = job.sequence_name if job.sequence_name else "frame"
         output_template = os.path.join(job.effective_output_path, f"{file_prefix}_####")
 
-        # Write GPU/setup script to a temp file
+        # Write GPU/setup script next to the .blend file (avoids permission issues)
+        blend_dir = os.path.dirname(job.blend_file) or "."
+        tmp_script_path = os.path.join(blend_dir, "_brm_setup.py")
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix="_brm.py", delete=False, encoding="utf-8"
-            ) as f:
+            with open(tmp_script_path, "w", encoding="utf-8") as f:
                 f.write(build_render_script(job))
-                self._tmp_script = f.name
+            self._tmp_script = tmp_script_path
         except Exception as e:
             self._log(f"[ERROR] Cannot write temp script: {e}")
             self._finish(job.STATUS_ERROR)
@@ -308,7 +347,6 @@ class RenderWorker:
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
-                creationflags=0,
             )
             job.process = proc
 
